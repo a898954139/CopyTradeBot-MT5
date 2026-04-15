@@ -64,6 +64,29 @@ function dirLabel(d: string | null): string {
   return "\u2014";
 }
 
+function dirLabelMarket(d: string | null): string {
+  if (d === "BUY") return "\u{1F4C8} \u505A\u591A  BUY NOW \u{1F4C8}";
+  if (d === "SELL") return "\u{1F4C9} \u505A\u7A7A  SELL NOW \u{1F4C9}";
+  return "\u2014";
+}
+
+// Map instrument symbols to Chinese names
+const SYMBOL_CHINESE_MAP: Record<string, string> = {
+  XAUUSD: "\u9EC4\u91D1",    // 黄金
+  BTCUSD: "\u6BD4\u7279\u5E01", // 比特币
+  EURUSD: "\u6B27\u5143\u7F8E\u5143", // 欧元美元
+  US100:  "\u7EB3\u65AF\u8FBE\u514B", // 纳斯达克
+  NAS100: "\u7EB3\u65AF\u8FBE\u514B", // 纳斯达克
+};
+
+function symbolLabel(symbol: string): string {
+  const chinese = SYMBOL_CHINESE_MAP[symbol.toUpperCase()] ?? symbol;
+  return `\u2B50 ${chinese} ${symbol} \u2B50`;
+}
+
+const DISCLAIMER =
+  "⚠️ 仅供参考，任何投资盈亏属个人交易行为，Nexus Group 纽克斯集团不对此承担责任，请知悉";
+
 function formatPrice(value: number): string {
   if (value === 0) return "\u2014";
   return value.toFixed(value >= 100 ? 2 : 5);
@@ -82,21 +105,26 @@ function formatTime(isoString: string): string {
 // ── Family formatters ─────────────────────────────────────────────
 
 function formatExecutionOpen(
-  header: string,
+  _header: string,
   p: TradeEventPayload,
 ): string {
+  const slDisplay = p.sl > 0 ? `<b>${formatPrice(p.sl)}</b>` : "\u2014";
+  const tpDisplay = p.tp > 0 ? `<b>${formatPrice(p.tp)}</b>` : "\u2014";
+
   return [
-    header,
-    `\u65B9\u5411 Direction: <b>${dirLabel(p.direction)}</b>`,
-    `\u624B\u6578 Volume: <b>${p.volume.toFixed(2)}</b>`,
-    `\u50F9\u683C Price: <b>${formatPrice(p.price)}</b>`,
-    `\u6B62\u640D SL: ${formatPrice(p.sl)}`,
-    `\u6B62\u76C8 TP: ${formatPrice(p.tp)}`,
-    p.position_id ? `\u55AE\u865F Position: ${p.position_id}` : null,
-    `\u6642\u9593 Time: ${formatTime(p.occurred_at)}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+    `<b>\u{1F4CA} \u5E02\u573A\u5355 Market Order</b>`,
+    "",
+    `<b>${symbolLabel(p.symbol)}</b>`,
+    `<b>${dirLabelMarket(p.direction)}</b>`,
+    "",
+    `\u{1F4CA} \u5165\u573A\u4EF7\u683C Entry Price: <b>${formatPrice(p.price)}</b>`,
+    `\u274C \u9632\u5B88 Stop Loss: ${slDisplay}`,
+    `\u{1F3AF} \u6700\u7EC8\u76EE\u6807 Final Take Profit: ${tpDisplay}`,
+    "",
+    `\u23F0 \u65F6\u95F4 Time: ${formatTime(p.occurred_at)}`,
+    "",
+    DISCLAIMER,
+  ].join("\n");
 }
 
 function formatExecutionClose(
