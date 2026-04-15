@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+*.db
+*.db-wal
+*.db-shm
+data/
+.omc/
+.DS_Store
+.spectra/
+openspec/.vector-search.db*
