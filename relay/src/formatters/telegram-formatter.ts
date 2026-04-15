@@ -72,7 +72,8 @@ function formatPrice(value: number): string {
 function formatTime(isoString: string): string {
   try {
     const d = new Date(isoString);
-    return d.toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
+    const utc8 = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+    return utc8.toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC+8");
   } catch {
     return isoString;
   }
