@@ -57,11 +57,11 @@ cd relay
 # Install dependencies
 npm install
 
-# Create .env from template
+# Create .env from template (must be inside relay/ directory)
 cp .env.example .env
 ```
 
-Edit `.env` with your values:
+Edit `relay/.env` with your values:
 
 ```env
 PORT=3000

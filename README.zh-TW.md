@@ -55,11 +55,11 @@ cd relay
 # 安裝套件
 npm install
 
-# 從範本建立 .env
+# 從範本建立 .env（必須放在 relay/ 目錄內）
 cp .env.example .env
 ```
 
-編輯 `.env`：
+編輯 `relay/.env`：
 
 ```env
 PORT=3000
