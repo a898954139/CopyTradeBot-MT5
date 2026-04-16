@@ -43,6 +43,16 @@ function initSchema(database: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_audit_log_key
       ON audit_log(idempotency_key);
+
+    CREATE TABLE IF NOT EXISTS follow_position_mappings (
+      source_position_id TEXT PRIMARY KEY,
+      follow_position_id TEXT,
+      symbol TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 

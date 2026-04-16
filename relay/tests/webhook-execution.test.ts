@@ -14,7 +14,7 @@ describe("Core Execution Events", () => {
   beforeEach(() => {
     db = createTestDb();
     telegram = new StubTelegramService();
-    app = createApp({ db, webhookSecret: TEST_SECRET, telegram });
+    app = createApp({ db, webhookSecret: TEST_SECRET, telegram, followTradingEnabled: false, followLotSize: 0.01 });
   });
 
   // Test 1: Market BUY opens new position

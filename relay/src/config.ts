@@ -6,6 +6,8 @@ interface Config {
   readonly telegramBotToken: string;
   readonly telegramChatId: string;
   readonly dbPath: string;
+  readonly followTradingEnabled: boolean;
+  readonly followLotSize: number;
 }
 
 function requireEnv(key: string): string {
@@ -23,5 +25,7 @@ export function loadConfig(): Config {
     telegramBotToken: requireEnv("TELEGRAM_BOT_TOKEN"),
     telegramChatId: requireEnv("TELEGRAM_CHAT_ID"),
     dbPath: process.env["DB_PATH"] ?? "./data/relay.db",
+    followTradingEnabled: process.env["FOLLOW_TRADING_ENABLED"] === "true",
+    followLotSize: parseFloat(process.env["FOLLOW_LOT_SIZE"] ?? "0.01"),
   };
 }

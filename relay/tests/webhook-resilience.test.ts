@@ -14,7 +14,7 @@ describe("Resilience", () => {
   beforeEach(() => {
     db = createTestDb();
     telegram = new StubTelegramService();
-    app = createApp({ db, webhookSecret: TEST_SECRET, telegram });
+    app = createApp({ db, webhookSecret: TEST_SECRET, telegram, followTradingEnabled: false, followLotSize: 0.01 });
   });
 
   // Test 20: Relay timeout / failure causes appropriate response

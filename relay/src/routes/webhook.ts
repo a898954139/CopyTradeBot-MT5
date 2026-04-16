@@ -5,12 +5,14 @@ import type { RelayResponse } from "../types.js";
 import type { DedupService } from "../services/dedup.js";
 import type { AuditService } from "../services/audit.js";
 import type { TelegramService } from "../services/telegram.js";
+import type { FollowTradeService } from "../services/follow-trade.js";
 import { formatTelegramMessage } from "../formatters/telegram-formatter.js";
 
 interface WebhookDeps {
   readonly dedup: DedupService;
   readonly audit: AuditService;
   readonly telegram: TelegramService;
+  readonly followTrade: FollowTradeService;
 }
 
 export function createWebhookRouter(deps: WebhookDeps): Router {
@@ -105,7 +107,26 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
       return;
     }
 
-    // Step 5: Success response
+    // Step 5: Follow-trade processing (separate concern, never blocks response)
+    try {
+      const ftResult = await deps.followTrade.processEvent(payload);
+      if (ftResult.processed) {
+        deps.audit.log(
+          payload.idempotency_key,
+          "follow_trade_result",
+          `action=${ftResult.action} reason=${ftResult.reason} followPos=${ftResult.followPositionId ?? "n/a"}`,
+        );
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      deps.audit.log(
+        payload.idempotency_key,
+        "follow_trade_error",
+        `unhandled: ${errorMsg}`,
+      );
+    }
+
+    // Step 6: Success response
     const response: RelayResponse = {
       ok: true,
       duplicate: false,

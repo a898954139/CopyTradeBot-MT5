@@ -11,7 +11,13 @@ function main(): void {
     config.telegramChatId,
   );
 
-  const app = createApp({ db, webhookSecret: config.webhookSecret, telegram });
+  const app = createApp({
+    db,
+    webhookSecret: config.webhookSecret,
+    telegram,
+    followTradingEnabled: config.followTradingEnabled,
+    followLotSize: config.followLotSize,
+  });
 
   app.listen(config.port, () => {
     console.log(`[Relay] Listening on port ${config.port}`);

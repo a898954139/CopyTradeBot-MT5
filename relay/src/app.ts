@@ -5,6 +5,9 @@ import { createWebhookRouter } from "./routes/webhook.js";
 import { DedupService } from "./services/dedup.js";
 import { AuditService } from "./services/audit.js";
 import type { TelegramService } from "./services/telegram.js";
+import { PositionMappingService } from "./services/position-mapping.js";
+import { FollowTradeService } from "./services/follow-trade.js";
+import { LoggingMt5ExecutionService } from "./services/mt5-execution.js";
 
 // Extend Express Request to carry raw body for HMAC verification
 declare global {
@@ -19,6 +22,8 @@ export interface AppDeps {
   readonly db: Database.Database;
   readonly webhookSecret: string;
   readonly telegram: TelegramService;
+  readonly followTradingEnabled: boolean;
+  readonly followLotSize: number;
 }
 
 export function createApp(deps: AppDeps): express.Application {
@@ -44,10 +49,22 @@ export function createApp(deps: AppDeps): express.Application {
   // Webhook routes
   const dedup = new DedupService(deps.db);
   const audit = new AuditService(deps.db);
+  const positionMapping = new PositionMappingService(deps.db);
+  const mt5 = new LoggingMt5ExecutionService();
+  const followTrade = new FollowTradeService({
+    config: {
+      enabled: deps.followTradingEnabled,
+      lotSize: deps.followLotSize,
+    },
+    positionMapping,
+    mt5,
+    audit,
+  });
   const webhookRouter = createWebhookRouter({
     dedup,
     audit,
     telegram: deps.telegram,
+    followTrade,
   });
 
   // TODO: re-enable auth after HMAC alignment

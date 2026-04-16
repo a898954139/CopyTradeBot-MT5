@@ -14,7 +14,7 @@ describe("Protection Changes (SL/TP)", () => {
   beforeEach(() => {
     db = createTestDb();
     telegram = new StubTelegramService();
-    app = createApp({ db, webhookSecret: TEST_SECRET, telegram });
+    app = createApp({ db, webhookSecret: TEST_SECRET, telegram, followTradingEnabled: false, followLotSize: 0.01 });
   });
 
   // Test 11: Add SL to existing position
