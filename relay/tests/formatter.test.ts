@@ -62,7 +62,7 @@ describe("Telegram Formatter", () => {
 
     const msg = formatTelegramMessage(payload);
 
-    expect(msg).toContain("修改止損 SL");
+    expect(msg).toContain("Stop Loss Edited");
     expect(msg).toContain("3225.00");
     expect(msg).toContain("3255.00");
   });

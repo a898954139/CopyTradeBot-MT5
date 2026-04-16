@@ -18,6 +18,7 @@ enum ENUM_BUSINESS_EVENT
    // Protection / exit events
    BE_SL_UPDATED,
    BE_TP_UPDATED,
+   BE_SL_AND_TP_UPDATED,
    BE_STOP_LOSS_TRIGGERED,
    BE_TAKE_PROFIT_TRIGGERED,
 
@@ -48,6 +49,7 @@ string BusinessEventToString(ENUM_BUSINESS_EVENT event)
       case BE_POSITION_CLOSED:           return "POSITION_CLOSED";
       case BE_SL_UPDATED:                return "SL_UPDATED";
       case BE_TP_UPDATED:                return "TP_UPDATED";
+      case BE_SL_AND_TP_UPDATED:         return "SL_AND_TP_UPDATED";
       case BE_STOP_LOSS_TRIGGERED:       return "STOP_LOSS_TRIGGERED";
       case BE_TAKE_PROFIT_TRIGGERED:     return "TAKE_PROFIT_TRIGGERED";
       case BE_PENDING_ORDER_CREATED:     return "PENDING_ORDER_CREATED";

@@ -35,9 +35,16 @@ public:
          case BE_TAKE_PROFIT_TRIGGERED:
             return acct + "|" + IntegerToString((long)c.deal_ticket);
 
-         //--- Pending order lifecycle: unique by order + state + time
+         //--- Pending order lifecycle: unique by order + values
+         //    Dedup confirmation events (ORDER_ADD then ORDER_UPDATE with same values)
+         //    but allow real modifications through (different price/sl/tp)
          case BE_PENDING_ORDER_CREATED:
          case BE_PENDING_ORDER_UPDATED:
+            return acct + "|" + IntegerToString((long)c.order_ticket) + "|" +
+                   DoubleToString(c.price, 5) + "|" +
+                   DoubleToString(c.sl, 5) + "|" +
+                   DoubleToString(c.tp, 5);
+
          case BE_PENDING_ORDER_CANCELLED:
          case BE_PENDING_ORDER_FILLED:
             return acct + "|" + IntegerToString((long)c.order_ticket) + "|" +
@@ -47,6 +54,7 @@ public:
          //--- SL/TP modifications: unique by position + values + time
          case BE_SL_UPDATED:
          case BE_TP_UPDATED:
+         case BE_SL_AND_TP_UPDATED:
             return acct + "|" + IntegerToString((long)c.position_id) + "|" +
                    BusinessEventToString(event_type) + "|" +
                    DoubleToString(c.sl, 5) + "|" +

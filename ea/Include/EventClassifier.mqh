@@ -74,7 +74,14 @@ private:
       switch(c.order_state)
       {
          case ORDER_STATE_PLACED:
-            return BE_PENDING_ORDER_CREATED;
+         {
+            // Check if we've seen this order ticket before
+            // First time = CREATED, subsequent = UPDATED
+            bool seen = IsOrderSeen(c.order_ticket);
+            if(!seen)
+               AddSeenOrder(c.order_ticket);
+            return seen ? BE_PENDING_ORDER_UPDATED : BE_PENDING_ORDER_CREATED;
+         }
 
          case ORDER_STATE_PARTIAL:
             return BE_PENDING_ORDER_UPDATED;
@@ -198,8 +205,9 @@ private:
       bool sl_changed = (c.sl != c.prev_sl && (c.sl != 0.0 || c.prev_sl != 0.0));
       bool tp_changed = (c.tp != c.prev_tp && (c.tp != 0.0 || c.prev_tp != 0.0));
 
-      // Prefer SL event if both changed (they'll often come together,
-      // but we emit one event; the payload carries both values)
+      if(sl_changed && tp_changed)
+         return BE_SL_AND_TP_UPDATED;
+
       if(sl_changed)
          return BE_SL_UPDATED;
 
@@ -208,6 +216,40 @@ private:
 
       return BE_NONE;
    }
+
+   //+------------------------------------------------------------------+
+   //| Order ticket cache for pending order create vs update detection   |
+   //+------------------------------------------------------------------+
+   static ulong  s_seen_orders[];
+   static int    s_seen_count;
+
+   static bool IsOrderSeen(ulong ticket)
+   {
+      for(int i = 0; i < s_seen_count; i++)
+         if(s_seen_orders[i] == ticket)
+            return true;
+      return false;
+   }
+
+   static void AddSeenOrder(ulong ticket)
+   {
+      int max_size = 64;
+      if(s_seen_count >= max_size)
+      {
+         // Shift out oldest half
+         int half = max_size / 2;
+         for(int i = 0; i < half; i++)
+            s_seen_orders[i] = s_seen_orders[i + half];
+         s_seen_count = half;
+      }
+      ArrayResize(s_seen_orders, s_seen_count + 1);
+      s_seen_orders[s_seen_count] = ticket;
+      s_seen_count++;
+   }
 };
+
+// Static member initialization
+ulong  CEventClassifier::s_seen_orders[];
+int    CEventClassifier::s_seen_count = 0;
 
 #endif
