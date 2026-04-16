@@ -101,10 +101,44 @@ The EA follows a strict pipeline: **Listener → Normalizer → Classifier → S
 | SL triggered | 🚨 止損觸發 SL Triggered |
 | TP triggered | 🏆 止盈觸發 TP Triggered |
 
+## Follow-Trade (Baseline)
+
+Copies manual trades from the source MT5 account to a follow account. Disabled by default — set `FOLLOW_TRADING_ENABLED=true` to activate.
+
+### In-Scope
+
+- **Open**: Manual market orders (`magic === 0`, `POSITION_OPENED`) are copied as a market order on the follow account with fixed lot size (`FOLLOW_LOT_SIZE`, default `0.01`). No SL/TP is placed on the initial open.
+- **SL/TP relay**: Later `SL_UPDATED` / `TP_UPDATED` events are forwarded to the follow position via `modifyPosition`, but only when a live mapping exists (status `open`).
+- **Dedup**: `position_id` is the primary key in `follow_position_mappings`. Duplicate open events for the same source position are skipped.
+- **Audit**: All actions (skip, open, update, fail) are logged to `audit_log`. Failures include an `ALERT:` prefix for monitoring.
+- **Non-blocking**: Follow-trade processing runs after the Telegram notification and never blocks the webhook response.
+
+### Out-of-Scope (Future)
+
+- Pending / limit orders (only market orders are copied).
+- Position close mirroring (close events are not forwarded).
+- Partial close handling on the follow account.
+- Dynamic lot sizing or risk-based sizing (fixed lot only).
+- Multi-account fan-out (single follow account).
+- Real MT5 execution — `Mt5ExecutionService` is currently a logging stub (`LoggingMt5ExecutionService`). A real implementation (e.g. MT5 Manager API or second EA) is required for live trading.
+
+### Config / Environment
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `FOLLOW_TRADING_ENABLED` | No | `false` | Global on/off switch |
+| `FOLLOW_LOT_SIZE` | No | `0.01` | Fixed lot size for follow orders |
+
+### Safety Notes
+
+- The feature is **off by default**. Enabling it with the stub executor only logs intended actions — no real orders are placed.
+- Position mappings persist in SQLite (`follow_position_mappings` table). If the relay restarts, existing mappings survive and SL/TP updates continue to route correctly.
+- If the MT5 execution call fails, the error is logged with `ALERT:` and the webhook still returns success (notification was already sent).
+
 ## Testing
 
 Tests use `StubTelegramService` (captures messages without API calls) and `createTestDb()` (in-memory SQLite). Test helpers in `tests/helpers.ts` provide `buildPayload()` and `makeHeaders()` for constructing signed requests.
 
 ## Environment
 
-Relay `.env` requires: `WEBHOOK_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. See `.env.example`.
+Relay `.env` requires: `WEBHOOK_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Optional: `FOLLOW_TRADING_ENABLED`, `FOLLOW_LOT_SIZE`. See `.env.example`.
