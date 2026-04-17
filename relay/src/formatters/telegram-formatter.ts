@@ -1,4 +1,9 @@
 import type { TradeEventPayload, BusinessEvent } from "../types.js";
+import { calculatePips, formatPips } from "./pips.js";
+import {
+  isBreakEvenFromSl,
+  type MarketOrderClassification,
+} from "../domain/market-order-classifier.js";
 
 // ── Event family grouping ─────────────────────────────────────────
 type EventFamily =
@@ -44,6 +49,7 @@ const EVENT_LABEL: Record<BusinessEvent, string> = {
 export function formatTelegramMessage(
   payload: TradeEventPayload,
   overallProfitable?: boolean | null,
+  classification?: MarketOrderClassification,
 ): string {
   const family = EVENT_FAMILY_MAP[payload.event_type];
   const label = EVENT_LABEL[payload.event_type];
@@ -51,7 +57,7 @@ export function formatTelegramMessage(
 
   switch (family) {
     case "execution_open":
-      return formatExecutionOpen(header, payload);
+      return formatExecutionOpen(header, payload, classification);
     case "execution_close":
       return formatExecutionClose(header, payload, overallProfitable);
     case "pending_order":
@@ -66,12 +72,6 @@ export function formatTelegramMessage(
 function dirLabel(d: string | null): string {
   if (d === "BUY") return "\u{1F535} \u505A\u591A Buy";
   if (d === "SELL") return "\u{1F534} \u505A\u7A7A Sell";
-  return "\u2014";
-}
-
-function dirLabelMarket(d: string | null): string {
-  if (d === "BUY") return "\u{1F4C8} \u505A\u591A  BUY NOW / LONG ORDER \u{1F4C8}";
-  if (d === "SELL") return "\u{1F4C9} \u505A\u7A7A SELL NOW / SHORT TRADE \u{1F4C9}";
   return "\u2014";
 }
 
@@ -123,28 +123,63 @@ function formatTime(isoString: string): string {
 
 // ── Family formatters ─────────────────────────────────────────────
 
+const MARKET_DISCLAIMER =
+  "\u26A0\uFE0F \u4EC5\u4F9B\u6559\u5B66\u53C2\u8003\uFF0C\u8BF7\u81EA\u884C\u627F\u62C5\u98CE\u9669 Educational purpose only. Trade at your own risk.";
+
+function marketSymbolLabel(symbol: string): string {
+  const chinese = SYMBOL_CHINESE_MAP[symbol.toUpperCase()] ?? symbol;
+  return `\u2B50\uFE0F ${chinese} ${symbol}`;
+}
+
+function marketDirLabel(d: string | null): string {
+  if (d === "BUY") return "\u{1F4C8} \u505A\u591A BUY NOW \u{1F4C8}";
+  if (d === "SELL") return "\u{1F4C9} \u505A\u7A7A SELL NOW \u{1F4C9}";
+  return "\u2014";
+}
+
+function pendingCreatedDirLabel(d: string | null): string {
+  if (d === "BUY") return "\u{1F4C8} \u9650\u4EF7\u505A\u591A BUY LIMIT \u{1F4C8}";
+  if (d === "SELL") return "\u{1F4C9} \u9650\u4EF7\u505A\u7A7A SELL LIMIT \u{1F4C9}";
+  return "\u2014";
+}
+
+function pendingCancelledDirLabel(d: string | null): string {
+  if (d === "BUY") return "\u{1F4C8} \u505A\u591A BUY LIMIT \u{1F4C8}";
+  if (d === "SELL") return "\u{1F4C9} \u505A\u7A7A SELL LIMIT \u{1F4C9}";
+  return "\u2014";
+}
+
+function marketDirLabelShort(d: string | null): string {
+  if (d === "BUY") return "\u{1F4C8} \u505A\u591A BUY \u{1F4C8}";
+  if (d === "SELL") return "\u{1F4C9} \u505A\u7A7A SELL \u{1F4C9}";
+  return "\u2014";
+}
+
 function formatExecutionOpen(
   _header: string,
   p: TradeEventPayload,
+  classification?: MarketOrderClassification,
 ): string {
   const slDisplay = p.sl > 0 ? `<b>${formatPrice(p.sl)}</b>` : "\u2014";
   const tpDisplay = p.tp > 0 ? `<b>${formatPrice(p.tp)}</b>` : "\u2014";
+  const openHeader = classification?.kind === "add_layer"
+    ? "<b>➕ 加倉 Add Position</b>"
+    : null;
 
   return [
-    `<b>\u{1F4CA} \u5E02\u573A\u5355 Market Order</b>`,
+    openHeader,
+    `<b>${marketSymbolLabel(p.symbol)}</b>`,
+    `<b>${marketDirLabel(p.direction)}</b>`,
     "",
-    `<b>${symbolLabel(p.symbol)}</b>`,
-    `<b>${dirLabelMarket(p.direction)}</b>`,
-    "",
-    `\u{1F4CA} \u5165\u573A\u4EF7\u683C Entry Price: <b>${formatPrice(p.price)}</b>`,
-    `\u274C \u9632\u5B88 Stop Loss: ${slDisplay}`,
-    `\u{1F3AF} \u6700\u7EC8\u76EE\u6807 Final Take Profit: ${tpDisplay}`,
+    `\u{1F4CA} \u5165\u573A Entry\uFF1A<b>${formatPrice(p.price)}</b>`,
+    `\u274C \u9632\u5B88 SL\uFF1A${slDisplay}`,
+    `\u{1F3AF} \u76EE\u6807 TP\uFF1A${tpDisplay}`,
     "",
     `\u{1F4CC} \u624B\u6570 Volume: ${p.volume.toFixed(2)}`,
     `\u23F0 \u65F6\u95F4 Time: ${formatTime(p.occurred_at)}`,
     p.position_id ? `\u{1F4CA} \u5355\u53F7 Position: ${p.position_id}` : null,
     "",
-    DISCLAIMER,
+    `<i>${MARKET_DISCLAIMER}</i>`,
   ]
     .filter((line): line is string => line !== null)
     .join("\n");
@@ -172,22 +207,21 @@ function formatExecutionClose(
       ? (p.direction === "BUY" && p.price > openPrice) ||
         (p.direction === "SELL" && p.price < openPrice)
       : null;
+  if (!isPartial && isProfitable === true) {
+    return formatTakeProfitHit(p);
+  }
+  if (!isPartial && isProfitable === false) {
+    return formatStopLossHit(p);
+  }
+
+  if (isPartial) {
+    return formatPartialClose(p, isProfitable, totalBeforeClose, closePercent);
+  }
 
   // Determine header and close price label
   let closeHeader: string;
   let closePriceLabel: string;
-  if (isPartial) {
-    if (isProfitable) {
-      closeHeader = "\u{1F4B5} \u6536\u8D70\u90E8\u5206\u5229\u6DA6 Partial Take Profit";
-      closePriceLabel = "\u{1F4B5} \u5E73\u4ED3\u4EF7\u683C Close Price";
-    } else if (isProfitable === false) {
-      closeHeader = "\u{1F4C9} \u90E8\u5206\u6B62\u635F\u79BB\u573A Partial Stop Loss";
-      closePriceLabel = "\u{1F4C9} \u5E73\u4ED3\u4EF7\u683C Close Price";
-    } else {
-      closeHeader = "\u{1F4CA} \u90E8\u5206\u5E73\u4ED3 Partial Close";
-      closePriceLabel = "\u{1F4CA} \u5E73\u4ED3\u4EF7\u683C Close Price";
-    }
-  } else if (isProfitable !== null) {
+  if (isProfitable !== null) {
     if (isProfitable) {
       closeHeader = "\u{1F3C6} \u6B62\u76C8\u79BB\u573A Take Profit Hit";
       closePriceLabel = "\u{1F3AF} \u5E73\u4ED3\u4EF7\u683C Take Profit";
@@ -202,6 +236,11 @@ function formatExecutionClose(
 
   const dir = dirLabelBranded(p.direction);
 
+  // Calculate pips from entry to close
+  const pipsLine = openPrice > 0 && p.price > 0 && p.direction
+    ? `\u{1F4CA} Pips: <b>${formatPips(calculatePips(openPrice, p.price, p.symbol, p.direction))}</b>`
+    : null;
+
   return [
     `<b>${closeHeader}</b>`,
     "",
@@ -210,6 +249,7 @@ function formatExecutionClose(
     "",
     openPrice > 0 ? `\u{1F4CA} \u5F00\u4ED3\u4EF7\u683C Entry Price: <b>${formatPrice(openPrice)}</b>` : null,
     `${closePriceLabel}: <b>${formatPrice(p.price)}</b>`,
+    pipsLine,
     `\u{1F4CC} \u5E73\u4ED3\u624B\u6570 Closed Volume: <b>${p.volume.toFixed(2)}</b>${closePercent ? ` (${closePercent}%)` : ""}`,
     totalBeforeClose > 0 ? `\u{1F4CC} \u603B\u624B\u6570 Total Volume: ${totalBeforeClose.toFixed(2)}` : null,
     "",
@@ -226,19 +266,23 @@ function formatPendingOrder(
   _header: string,
   p: TradeEventPayload,
 ): string {
+  if (p.event_type === "PENDING_ORDER_CREATED") {
+    return formatPendingOrderCreated(p);
+  }
+  if (p.event_type === "PENDING_ORDER_CANCELLED") {
+    return formatPendingOrderCancelled(p);
+  }
+  if (p.event_type === "PENDING_ORDER_UPDATED") {
+    return formatPendingOrderUpdated(p);
+  }
+
   const slDisplay = p.sl > 0 ? `<b>${formatPrice(p.sl)}</b>` : "\u2014";
   const tpDisplay = p.tp > 0 ? `<b>${formatPrice(p.tp)}</b>` : "\u2014";
 
   let pendingHeader: string;
   switch (p.event_type) {
-    case "PENDING_ORDER_CANCELLED":
-      pendingHeader = "\u274C \u9650\u4EF7\u5355\u5DF2\u53D6\u6D88 Limit Order Cancelled";
-      break;
     case "PENDING_ORDER_FILLED":
       pendingHeader = "\u2705 \u9650\u4EF7\u5355\u5DF2\u6210\u4EA4 Limit Order Filled";
-      break;
-    case "PENDING_ORDER_UPDATED":
-      pendingHeader = "\u{1F4DD} \u9650\u4EF7\u5355\u5DF2\u4FEE\u6539 Limit Order Updated";
       break;
     default:
       pendingHeader = "\u{1F4CB} \u9650\u4EF7\u5355 Limit Order";
@@ -265,6 +309,76 @@ function formatPendingOrder(
     .join("\n");
 }
 
+function formatPendingOrderCancelled(p: TradeEventPayload): string {
+  const slDisplay = p.sl > 0 ? `<b>${formatPrice(p.sl)}</b>` : "\u2014";
+  const tpDisplay = p.tp > 0 ? `<b>${formatPrice(p.tp)}</b>` : "\u2014";
+
+  return [
+    `<b>\u274C \u9650\u4EF7\u53D6\u6D88 Limit Cancelled</b>`,
+    "",
+    `<b>${marketSymbolLabel(p.symbol)}</b>`,
+    `<b>${pendingCancelledDirLabel(p.direction)}</b>`,
+    "",
+    `\u{1F4CA} \u5165\u573A Entry\uFF1A<b>${formatPrice(p.price)}</b>`,
+    `\u274C \u9632\u5B88 SL\uFF1A${slDisplay}`,
+    `\u{1F3AF} \u76EE\u6807 TP\uFF1A${tpDisplay}`,
+    "",
+    `\u{1F4CC} \u624B\u6570 Volume: ${p.volume.toFixed(2)}`,
+    `\u23F0 \u65F6\u95F4 Time: ${formatTime(p.occurred_at)}`,
+    p.order_ticket ? `\u{1F4CA} \u5355\u53F7 Position: ${p.order_ticket}` : null,
+    "",
+    `<i>${MARKET_DISCLAIMER}</i>`,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+}
+
+function formatPendingOrderUpdated(p: TradeEventPayload): string {
+  const slDisplay = p.sl > 0 ? `<b>${formatPrice(p.sl)}</b>` : "\u2014";
+  const tpDisplay = p.tp > 0 ? `<b>${formatPrice(p.tp)}</b>` : "\u2014";
+
+  return [
+    `<b>\u{1F4DD} \u9650\u4EF7\u5355\u4FEE\u6539 Limit Updated</b>`,
+    "",
+    `<b>${marketSymbolLabel(p.symbol)}</b>`,
+    `<b>${pendingCreatedDirLabel(p.direction)}</b>`,
+    "",
+    `\u{1F4CA} \u5165\u573A Entry\uFF1A<b>${formatPrice(p.price)}</b>`,
+    `\u274C \u9632\u5B88 SL\uFF1A${slDisplay}`,
+    `\u{1F3AF} \u76EE\u6807 TP\uFF1A${tpDisplay}`,
+    "",
+    `\u{1F4CC} \u624B\u6570 Volume: ${p.volume.toFixed(2)}`,
+    `\u23F0 \u65F6\u95F4 Time: ${formatTime(p.occurred_at)}`,
+    p.order_ticket ? `\u{1F4CA} \u5355\u53F7 Position: ${p.order_ticket}` : null,
+    "",
+    `<i>${MARKET_DISCLAIMER}</i>`,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+}
+
+function formatPendingOrderCreated(p: TradeEventPayload): string {
+  const slDisplay = p.sl > 0 ? `<b>${formatPrice(p.sl)}</b>` : "\u2014";
+  const tpDisplay = p.tp > 0 ? `<b>${formatPrice(p.tp)}</b>` : "\u2014";
+
+  return [
+    `<b>${marketSymbolLabel(p.symbol)}</b>`,
+    `<b>${pendingCreatedDirLabel(p.direction)}</b>`,
+    "",
+    `\u{1F4CA} \u5165\u573A Entry\uFF1A<b>${formatPrice(p.price)}</b>`,
+    `\u274C \u9632\u5B88 SL\uFF1A${slDisplay}`,
+    `\u{1F3AF} \u76EE\u6807 TP\uFF1A${tpDisplay}`,
+    "",
+    `\u{1F4CC} \u624B\u6570 Volume: ${p.volume.toFixed(2)}`,
+    `\u23F0 \u65F6\u95F4 Time: ${formatTime(p.occurred_at)}`,
+    p.order_ticket ? `\u{1F4CA} \u5355\u53F7 Position: ${p.order_ticket}` : null,
+    "",
+    `<i>${MARKET_DISCLAIMER}</i>`,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+}
+
 function formatSLTPModification(
   _header: string,
   p: TradeEventPayload,
@@ -275,15 +389,19 @@ function formatSLTPModification(
   const dir = dirLabelBranded(p.direction);
 
   // Determine header based on event type and break-even detection
+  const isBreakEven =
+    (p.event_type === "SL_UPDATED" || p.event_type === "SL_AND_TP_UPDATED") &&
+    p.sl > 0 && entryPrice > 0 && p.direction !== null &&
+    ((p.direction === "BUY" && p.sl >= entryPrice) ||
+     (p.direction === "SELL" && p.sl <= entryPrice));
+
+  if (isBreakEven) {
+    return formatBreakEvenSet(p);
+  }
+
   let modHeader: string;
   if (p.event_type === "SL_UPDATED" || p.event_type === "SL_AND_TP_UPDATED") {
-    const isBreakEven =
-      p.sl > 0 && entryPrice > 0 && p.direction &&
-      ((p.direction === "BUY" && p.sl >= entryPrice) ||
-       (p.direction === "SELL" && p.sl <= entryPrice));
-    if (isBreakEven) {
-      modHeader = "\u{1F6E1} \u4FDD\u62A4\u5DF2\u63A8\u4E0A Break-Even Set";
-    } else if (p.event_type === "SL_AND_TP_UPDATED") {
+    if (p.event_type === "SL_AND_TP_UPDATED") {
       modHeader = "\u{1F4DD} \u9632\u5B88\u548C\u76EE\u6807\u4FEE\u6539 Stop Loss and Take Profit Edited";
     } else {
       modHeader = "\u{1F4DD} \u9632\u5B88\u4FEE\u6539 Stop Loss Edited";
@@ -295,18 +413,183 @@ function formatSLTPModification(
   return [
     `<b>${modHeader}</b>`,
     "",
-    `<b>${symbolLabel(p.symbol)}</b>`,
-    `<b>${dir}</b>`,
+    `<b>${marketSymbolLabel(p.symbol)}</b>`,
+    `<b>${marketDirLabelShort(p.direction)}</b>`,
     "",
-    entryPrice > 0 ? `\u{1F4CA} \u5165\u573A\u4EF7\u683C Entry Price: <b>${formatPrice(entryPrice)}</b>` : null,
-    `\u274C \u9632\u5B88 Stop Loss: ${slDisplay}`,
-    `\u{1F3AF} \u6700\u7EC8\u76EE\u6807 Final Take Profit: ${tpDisplay}`,
+    entryPrice > 0 ? `\u{1F4CA} \u5165\u573A Entry\uFF1A<b>${formatPrice(entryPrice)}</b>` : null,
+    `\u274C \u9632\u5B88 SL\uFF1A${slDisplay}`,
+    `\u{1F3AF} \u76EE\u6807 TP\uFF1A${tpDisplay}`,
     "",
     `\u{1F4CC} \u624B\u6570 Volume: ${p.volume.toFixed(2)}`,
     `\u23F0 \u65F6\u95F4 Time: ${formatTime(p.occurred_at)}`,
     p.position_id ? `\u{1F4CA} \u5355\u53F7 Position: ${p.position_id}` : null,
     "",
-    DISCLAIMER,
+    `<i>${MARKET_DISCLAIMER}</i>`,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+}
+
+function formatBreakEvenSet(p: TradeEventPayload): string {
+  const entryPrice = p.open_price ?? p.price;
+  const slDisplay = p.sl > 0 ? `<b>${formatPrice(p.sl)}</b>` : "\u2014";
+  const tpDisplay = p.tp > 0 ? `<b>${formatPrice(p.tp)}</b>` : "\u2014";
+
+  return [
+    `<b>\u{1F6E1} \u4FDD\u62A4\u63A8\u4E0A Break-Even Set</b>`,
+    "",
+    `<b>${marketSymbolLabel(p.symbol)}</b>`,
+    `<b>${marketDirLabelShort(p.direction)}</b>`,
+    "",
+    entryPrice > 0 ? `\u{1F4CA} \u5165\u573A Entry\uFF1A<b>${formatPrice(entryPrice)}</b>` : null,
+    `\u274C \u9632\u5B88 SL\uFF1A${slDisplay}`,
+    `\u{1F3AF} \u76EE\u6807 TP\uFF1A${tpDisplay}`,
+    "",
+    `\u{1F4CC} \u624B\u6570 Volume: ${p.volume.toFixed(2)}`,
+    `\u23F0 \u65F6\u95F4 Time: ${formatTime(p.occurred_at)}`,
+    p.position_id ? `\u{1F4CA} \u5355\u53F7 Position: ${p.position_id}` : null,
+    "",
+    `<i>${MARKET_DISCLAIMER}</i>`,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+}
+
+function formatBreakEvenHit(p: TradeEventPayload): string {
+  const openPrice = p.open_price ?? 0;
+  const rawTotalVol = p.total_volume ?? 0;
+  const totalVol = rawTotalVol > 0 ? rawTotalVol : p.volume;
+  const closePercent = totalVol > 0
+    ? ((p.volume / totalVol) * 100).toFixed(0)
+    : null;
+  const volumeValue =
+    `${p.volume.toFixed(2)}/${totalVol.toFixed(2)}${closePercent ? ` (${closePercent}%)` : ""}`;
+
+  return [
+    `<b>\u{1F6E1} \u4FDD\u62A4\u79BB\u573A Break-Even Hit</b>`,
+    "",
+    `<b>${marketSymbolLabel(p.symbol)}</b>`,
+    `<b>${marketDirLabelShort(p.direction)}</b>`,
+    "",
+    openPrice > 0 ? `\u{1F4CA} \u5165\u573A Entry\uFF1A<b>${formatPrice(openPrice)}</b>` : null,
+    `\u{1F6E1} \u4FDD\u62A4 BE\uFF1A<b>${formatPrice(p.price)}</b>`,
+    "",
+    `\u{1F4CC} \u624B\u6570 Volume: <b>${volumeValue}</b>`,
+    `\u23F0 \u65F6\u95F4 Time: ${formatTime(p.occurred_at)}`,
+    p.position_id ? `\u{1F4CA} \u5355\u53F7 Position: ${p.position_id}` : null,
+    "",
+    `<i>${MARKET_DISCLAIMER}</i>`,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+}
+
+function formatPartialClose(
+  p: TradeEventPayload,
+  isProfitable: boolean | null,
+  totalBeforeClose: number,
+  closePercent: string | null,
+): string {
+  const openPrice = p.open_price ?? 0;
+  const pipsLine = openPrice > 0 && p.price > 0 && p.direction
+    ? `\u{1F4CA} Pips: <b>${formatPips(calculatePips(openPrice, p.price, p.symbol, p.direction))}</b>`
+    : null;
+
+  let closeHeader: string;
+  let closePriceLabel: string;
+  if (isProfitable === true) {
+    closeHeader = "\u{1F4B5} \u6536\u90E8\u5206\u5229\u6DA6 Partial Take Profit";
+    closePriceLabel = "\u{1F4B5} \u5E73\u4ED3\u4EF7\u683C Closed Price";
+  } else if (isProfitable === false) {
+    closeHeader = "\u{1F4C9} \u90E8\u5206\u6B62\u635F\u79BB\u573A Partial Stop Loss";
+    closePriceLabel = "\u{1F4C9} \u5E73\u4ED3\u4EF7\u683C Closed Price";
+  } else {
+    closeHeader = "\u{1F4CA} \u90E8\u5206\u5E73\u4ED3 Partial Close";
+    closePriceLabel = "\u{1F4CA} \u5E73\u4ED3\u4EF7\u683C Closed Price";
+  }
+
+  return [
+    `<b>${closeHeader}</b>`,
+    "",
+    `<b>${marketSymbolLabel(p.symbol)}</b>`,
+    `<b>${marketDirLabelShort(p.direction)}</b>`,
+    "",
+    openPrice > 0 ? `\u{1F4CA} \u5165\u573A Entry\uFF1A<b>${formatPrice(openPrice)}</b>` : null,
+    `${closePriceLabel}: <b>${formatPrice(p.price)}</b>`,
+    pipsLine,
+    "",
+    `\u{1F4CC} \u5E73\u4ED3\u624B\u6570 Closed Volume: ${p.volume.toFixed(2)}${closePercent ? ` (${closePercent}%)` : ""}`,
+    totalBeforeClose > 0 ? `\u{1F4CC} \u603B\u624B\u6570 Total Volume: ${totalBeforeClose.toFixed(2)}` : null,
+    `\u23F0 \u65F6\u95F4 Time: ${formatTime(p.occurred_at)}`,
+    p.position_id ? `\u{1F4CA} \u5355\u53F7 Position: ${p.position_id}` : null,
+    "",
+    `<i>${MARKET_DISCLAIMER}</i>`,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+}
+
+function formatStopLossHit(p: TradeEventPayload): string {
+  const openPrice = p.open_price ?? 0;
+  const rawTotalVol = p.total_volume ?? 0;
+  const totalVol = rawTotalVol > 0 ? rawTotalVol : p.volume;
+  const closePercent = totalVol > 0
+    ? ((p.volume / totalVol) * 100).toFixed(0)
+    : null;
+  const volumeValue =
+    `${p.volume.toFixed(2)}/${totalVol.toFixed(2)}${closePercent ? ` (${closePercent}%)` : ""}`;
+  const pipsLine = openPrice > 0 && p.price > 0 && p.direction
+    ? `\u{1F4CA} Pips: <b>${formatPips(calculatePips(openPrice, p.price, p.symbol, p.direction))}</b>`
+    : null;
+
+  return [
+    `<b>\u274C \u6B62\u635F\u79BB\u573A Stop Loss Hit</b>`,
+    "",
+    `<b>${marketSymbolLabel(p.symbol)}</b>`,
+    `<b>${marketDirLabelShort(p.direction)}</b>`,
+    "",
+    openPrice > 0 ? `\u{1F4CA} \u5165\u573A Entry\uFF1A<b>${formatPrice(openPrice)}</b>` : null,
+    `\u274C \u6B62\u635F SL\uFF1A<b>${formatPrice(p.price)}</b>`,
+    pipsLine,
+    "",
+    `\u{1F4CC} \u624B\u6570 Volume: <b>${volumeValue}</b>`,
+    `\u23F0 \u65F6\u95F4 Time: ${formatTime(p.occurred_at)}`,
+    p.position_id ? `\u{1F4CA} \u5355\u53F7 Position: ${p.position_id}` : null,
+    "",
+    `<i>${MARKET_DISCLAIMER}</i>`,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+}
+
+function formatTakeProfitHit(p: TradeEventPayload): string {
+  const openPrice = p.open_price ?? 0;
+  const rawTotalVol = p.total_volume ?? 0;
+  const totalVol = rawTotalVol > 0 ? rawTotalVol : p.volume;
+  const closePercent = totalVol > 0
+    ? ((p.volume / totalVol) * 100).toFixed(0)
+    : null;
+  const volumeValue =
+    `${p.volume.toFixed(2)}/${totalVol.toFixed(2)}${closePercent ? ` (${closePercent}%)` : ""}`;
+  const pipsLine = openPrice > 0 && p.price > 0 && p.direction
+    ? `\u{1F4CA} Pips: <b>${formatPips(calculatePips(openPrice, p.price, p.symbol, p.direction))}</b>`
+    : null;
+
+  return [
+    `<b>\u{1F3C6} \u6B62\u76C8\u79BB\u573A Take Profit Hit</b>`,
+    "",
+    `<b>${marketSymbolLabel(p.symbol)}</b>`,
+    `<b>${marketDirLabelShort(p.direction)}</b>`,
+    "",
+    openPrice > 0 ? `\u{1F4CA} \u5165\u573A Entry\uFF1A<b>${formatPrice(openPrice)}</b>` : null,
+    `\u{1F3AF} \u76EE\u6807 TP\uFF1A<b>${formatPrice(p.price)}</b>`,
+    pipsLine,
+    "",
+    `\u{1F4CC} \u624B\u6570 Volume\uFF1A<b>${volumeValue}</b>`,
+    `\u23F0 \u65F6\u95F4 Time\uFF1A${formatTime(p.occurred_at)}`,
+    p.position_id ? `\u{1F4CA} \u5355\u53F7 Position\uFF1A${p.position_id}` : null,
+    "",
+    `<i>${MARKET_DISCLAIMER}</i>`,
   ]
     .filter((line): line is string => line !== null)
     .join("\n");
@@ -319,10 +602,23 @@ function formatSLTPTriggered(
   const isSL = p.event_type === "STOP_LOSS_TRIGGERED";
   const openPrice = p.open_price ?? 0;
 
-  // Detect break-even hit: SL triggered but close price >= entry (BUY) or <= entry (SELL)
-  const isBreakEvenHit = isSL && openPrice > 0 && p.price > 0 && p.direction &&
-    ((p.direction === "BUY" && p.price >= openPrice) ||
-     (p.direction === "SELL" && p.price <= openPrice));
+  // Detect break-even hit from the protective stop level, not close price alone.
+  const isBreakEvenHit = isSL && openPrice > 0 && p.sl > 0 && p.direction &&
+    isBreakEvenFromSl({
+      direction: p.direction,
+      entryPrice: openPrice,
+      stopLoss: p.sl,
+    });
+
+  if (isSL && !isBreakEvenHit) {
+    return formatStopLossHit(p);
+  }
+  if (!isSL) {
+    return formatTakeProfitHit(p);
+  }
+  if (isBreakEvenHit) {
+    return formatBreakEvenHit(p);
+  }
 
   let triggerHeader: string;
   let closePriceLabel: string;
@@ -343,6 +639,11 @@ function formatSLTPTriggered(
     : null;
   const dir = dirLabelBranded(p.direction);
 
+  // Calculate pips from entry to close
+  const pipsLine = openPrice > 0 && p.price > 0 && p.direction
+    ? `\u{1F4CA} Pips: <b>${formatPips(calculatePips(openPrice, p.price, p.symbol, p.direction))}</b>`
+    : null;
+
   return [
     `<b>${triggerHeader}</b>`,
     "",
@@ -351,6 +652,7 @@ function formatSLTPTriggered(
     "",
     openPrice > 0 ? `\u{1F4CA} \u5F00\u4ED3\u4EF7\u683C Entry Price: <b>${formatPrice(openPrice)}</b>` : null,
     `${closePriceLabel}: <b>${formatPrice(p.price)}</b>`,
+    pipsLine,
     `\u{1F4CC} \u5E73\u4ED3\u624B\u6570 Closed Volume: <b>${p.volume.toFixed(2)}</b>${closePercent ? ` (${closePercent}%)` : ""}`,
     totalVol > 0 ? `\u{1F4CC} \u603B\u624B\u6570 Total Volume: ${totalVol.toFixed(2)}` : null,
     "",

@@ -44,6 +44,32 @@ export class DedupService {
       });
   }
 
+  getExecutionHistory(
+    symbol: string,
+    direction: "BUY" | "SELL",
+  ): TradeEventPayload[] {
+    const rows = this.db
+      .prepare(
+        `SELECT payload FROM processed_events
+         WHERE event_type IN (
+           'POSITION_OPENED',
+           'POSITION_INCREASED',
+           'POSITION_PARTIALLY_CLOSED',
+           'POSITION_CLOSED',
+           'SL_UPDATED',
+           'SL_AND_TP_UPDATED',
+           'STOP_LOSS_TRIGGERED',
+           'TAKE_PROFIT_TRIGGERED'
+         )
+         AND json_extract(payload, '$.symbol') = ?
+         AND json_extract(payload, '$.direction') = ?
+         ORDER BY json_extract(payload, '$.occurred_at') ASC, received_at ASC, rowid ASC`,
+      )
+      .all(symbol, direction) as { payload: string }[];
+
+    return rows.map((row) => JSON.parse(row.payload) as TradeEventPayload);
+  }
+
   /** Find all previous close events for a position to calculate overall P&L */
   getPositionCloses(positionId: string): TradeEventPayload[] {
     const rows = this.db
@@ -57,11 +83,75 @@ export class DedupService {
     return rows.map((r) => JSON.parse(r.payload) as TradeEventPayload);
   }
 
+  /**
+   * Find the most recent close-family event for the same position within the
+   * given window. Used to aggregate broker-fragmented fills (e.g. a 2.00 lot
+   * TP closed as 2x1.00 deals within milliseconds of each other).
+   */
+  findRecentCloseSibling(
+    positionId: string,
+    windowSeconds: number,
+  ): {
+    idempotencyKey: string;
+    messageId: string;
+    payload: TradeEventPayload;
+  } | null {
+    const row = this.db
+      .prepare(
+        `SELECT idempotency_key, telegram_message_id, payload
+         FROM processed_events
+         WHERE event_type IN (
+           'POSITION_PARTIALLY_CLOSED',
+           'POSITION_CLOSED',
+           'STOP_LOSS_TRIGGERED',
+           'TAKE_PROFIT_TRIGGERED'
+         )
+         AND json_extract(payload, '$.position_id') = ?
+         AND telegram_message_id IS NOT NULL
+         AND received_at >= datetime('now', ?)
+         ORDER BY received_at ASC, rowid ASC
+         LIMIT 1`,
+      )
+      .get(positionId, `-${windowSeconds} seconds`) as
+      | {
+          idempotency_key: string;
+          telegram_message_id: string;
+          payload: string;
+        }
+      | undefined;
+
+    if (!row) return null;
+    return {
+      idempotencyKey: row.idempotency_key,
+      messageId: row.telegram_message_id,
+      payload: JSON.parse(row.payload) as TradeEventPayload,
+    };
+  }
+
+  /** Persist the aggregated payload back to the sibling row so subsequent
+   *  fragments continue to aggregate against the combined state. */
+  updateAggregatedPayload(
+    idempotencyKey: string,
+    aggregated: TradeEventPayload,
+  ): void {
+    this.db
+      .prepare(
+        "UPDATE processed_events SET payload = @payload WHERE idempotency_key = @key",
+      )
+      .run({ payload: JSON.stringify(aggregated), key: idempotencyKey });
+  }
+
   updateMessageId(idempotencyKey: string, messageId: string): void {
     this.db
       .prepare(
         "UPDATE processed_events SET telegram_message_id = @msgId WHERE idempotency_key = @key",
       )
       .run({ msgId: messageId, key: idempotencyKey });
+  }
+
+  remove(idempotencyKey: string): void {
+    this.db
+      .prepare("DELETE FROM processed_events WHERE idempotency_key = ?")
+      .run(idempotencyKey);
   }
 }

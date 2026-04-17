@@ -35,7 +35,7 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("Close Position");
+    expect(telegram.sentMessages[0]).toContain("Position Closed");
   });
 
   // Test 17: Position closes by stop loss
@@ -45,6 +45,8 @@ describe("Exit Reasons", () => {
       direction: "BUY",
       volume: 0.1,
       price: 3228.0,
+      open_price: 3234.56,
+      sl: 3228.0,
       reason: "SL",
       idempotency_key: "12345678|sl-trigger-001",
     });
@@ -56,8 +58,29 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("SL Triggered");
-    expect(telegram.sentMessages[0]).toContain("止損 SL");
+    expect(telegram.sentMessages[0]).toContain("Stop Loss Hit");
+  });
+
+  it("should format STOP_LOSS_TRIGGERED above entry as Break-Even Hit", async () => {
+    const payload = buildPayload({
+      event_type: "STOP_LOSS_TRIGGERED",
+      direction: "BUY",
+      volume: 0.1,
+      open_price: 3234.56,
+      price: 3235.06,
+      sl: 3235.06,
+      reason: "SL",
+      idempotency_key: "12345678|sl-trigger-be-001",
+    });
+    const body = JSON.stringify(payload);
+
+    const res = await request(app)
+      .post("/webhooks/mt5/events")
+      .set(makeHeaders(body))
+      .send(body);
+
+    expect(res.status).toBe(200);
+    expect(telegram.sentMessages[0]).toContain("Break-Even Hit");
   });
 
   // Test 18: Position closes by take profit
@@ -78,8 +101,7 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("TP Triggered");
-    expect(telegram.sentMessages[0]).toContain("止盈 TP");
+    expect(telegram.sentMessages[0]).toContain("Take Profit Hit");
   });
 
   // Test 19: Position closes by other/system reason
@@ -100,6 +122,6 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("Close Position");
+    expect(telegram.sentMessages[0]).toContain("Position Closed");
   });
 });

@@ -9,3 +9,4 @@ data/
 .DS_Store
 .spectra/
 openspec/.vector-search.db*
+.omx/
