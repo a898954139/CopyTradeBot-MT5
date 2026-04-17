@@ -73,8 +73,36 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
       return;
     }
 
-    // Step 4: Format and send to Telegram
-    const message = formatTelegramMessage(payload);
+    // Step 4: For close events, calculate overall P&L including previous partial closes
+    let overallProfitable: boolean | null = null;
+    if (
+      (payload.event_type === "POSITION_CLOSED" ||
+        payload.event_type === "POSITION_PARTIALLY_CLOSED") &&
+      payload.position_id &&
+      payload.direction
+    ) {
+      const prevCloses = deps.dedup.getPositionCloses(payload.position_id);
+      const dirMul = payload.direction === "BUY" ? 1 : -1;
+      let totalPnL = 0;
+      // Sum P&L from previous closes
+      for (const prev of prevCloses) {
+        const entry = prev.open_price ?? prev.price;
+        if (entry > 0 && prev.price > 0) {
+          totalPnL += (prev.price - entry) * prev.volume * dirMul;
+        }
+      }
+      // Add current close P&L
+      const currentEntry = payload.open_price ?? 0;
+      if (currentEntry > 0 && payload.price > 0) {
+        totalPnL += (payload.price - currentEntry) * payload.volume * dirMul;
+      }
+      if (totalPnL !== 0) {
+        overallProfitable = totalPnL > 0;
+      }
+    }
+
+    // Format and send to Telegram
+    const message = formatTelegramMessage(payload, overallProfitable);
     let messageId: string | undefined;
 
     try {

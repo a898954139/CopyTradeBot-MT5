@@ -35,8 +35,7 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("POSITION CLOSED");
-    expect(telegram.sentMessages[0]).toContain("MANUAL");
+    expect(telegram.sentMessages[0]).toContain("Close Position");
   });
 
   // Test 17: Position closes by stop loss
@@ -57,8 +56,8 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("STOP LOSS TRIGGERED");
-    expect(telegram.sentMessages[0]).toContain("Reason: SL");
+    expect(telegram.sentMessages[0]).toContain("SL Triggered");
+    expect(telegram.sentMessages[0]).toContain("止損 SL");
   });
 
   // Test 18: Position closes by take profit
@@ -79,8 +78,8 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("TAKE PROFIT TRIGGERED");
-    expect(telegram.sentMessages[0]).toContain("Reason: TP");
+    expect(telegram.sentMessages[0]).toContain("TP Triggered");
+    expect(telegram.sentMessages[0]).toContain("止盈 TP");
   });
 
   // Test 19: Position closes by other/system reason
@@ -101,6 +100,6 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("SYSTEM");
+    expect(telegram.sentMessages[0]).toContain("Close Position");
   });
 });

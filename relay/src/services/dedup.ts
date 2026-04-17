@@ -44,6 +44,19 @@ export class DedupService {
       });
   }
 
+  /** Find all previous close events for a position to calculate overall P&L */
+  getPositionCloses(positionId: string): TradeEventPayload[] {
+    const rows = this.db
+      .prepare(
+        `SELECT payload FROM processed_events
+         WHERE event_type IN ('POSITION_PARTIALLY_CLOSED', 'POSITION_CLOSED')
+         AND json_extract(payload, '$.position_id') = ?`,
+      )
+      .all(positionId) as { payload: string }[];
+
+    return rows.map((r) => JSON.parse(r.payload) as TradeEventPayload);
+  }
+
   updateMessageId(idempotencyKey: string, messageId: string): void {
     this.db
       .prepare(

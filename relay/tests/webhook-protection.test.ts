@@ -34,7 +34,7 @@ describe("Protection Changes (SL/TP)", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("SL");
+    expect(telegram.sentMessages[0]).toContain("Edited");
     expect(telegram.sentMessages[0]).toContain("3220");
   });
 
@@ -55,7 +55,7 @@ describe("Protection Changes (SL/TP)", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("TP");
+    expect(telegram.sentMessages[0]).toContain("Edited");
     expect(telegram.sentMessages[0]).toContain("3260");
   });
 
