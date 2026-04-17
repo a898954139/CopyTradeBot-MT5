@@ -8,6 +8,7 @@ export interface TrackedOrder {
   readonly stopLoss: number;
   readonly isBreakEven: boolean;
   readonly isClosed: boolean;
+  readonly entrySequence: number;
 }
 
 export interface MarketOrderClassification {
@@ -32,7 +33,7 @@ export function deriveTrackedOrders(
 ): TrackedOrder[] {
   const tracked = new Map<string, TrackedOrder>();
 
-  for (const event of events) {
+  for (const [index, event] of events.entries()) {
     const positionId = event.position_id;
     if (!positionId || !event.direction) continue;
 
@@ -41,7 +42,8 @@ export function deriveTrackedOrders(
     switch (event.event_type) {
       case "POSITION_OPENED":
       case "POSITION_INCREASED": {
-        const entryPrice = existing?.entryPrice ?? event.open_price ?? event.price;
+        const entryPrice = existing?.entryPrice ??
+          (event.open_price > 0 ? event.open_price : event.price);
         const stopLoss = event.sl > 0 ? event.sl : (existing?.stopLoss ?? 0);
         tracked.set(positionId, {
           positionId,
@@ -55,6 +57,7 @@ export function deriveTrackedOrders(
             stopLoss,
           }),
           isClosed: false,
+          entrySequence: existing?.entrySequence ?? index,
         });
         break;
       }
@@ -62,7 +65,8 @@ export function deriveTrackedOrders(
       case "SL_UPDATED":
       case "SL_AND_TP_UPDATED": {
         if (!existing) break;
-        const entryPrice = existing.entryPrice || event.open_price || event.price;
+        const entryPrice = existing.entryPrice ||
+          (event.open_price > 0 ? event.open_price : event.price);
         const stopLoss = event.sl > 0 ? event.sl : existing.stopLoss;
         tracked.set(positionId, {
           ...existing,
@@ -73,6 +77,7 @@ export function deriveTrackedOrders(
             entryPrice,
             stopLoss,
           }),
+          entrySequence: existing.entrySequence,
         });
         break;
       }
@@ -106,12 +111,11 @@ export function classifyMarketOrder(
       order.symbol === payload.symbol &&
       order.direction === payload.direction &&
       !order.isBreakEven &&
-      order.stopLoss > 0 &&
-      Math.abs(payload.price - order.stopLoss) <= 10.0,
+      order.entryPrice > 0 &&
+      Math.abs(payload.price - order.entryPrice) <= 10.0,
     )
     .sort((left, right) =>
-      Math.abs(payload.price - left.stopLoss) -
-      Math.abs(payload.price - right.stopLoss),
+      right.entrySequence - left.entrySequence,
     )[0];
 
   if (!match) {

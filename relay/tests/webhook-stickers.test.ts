@@ -81,7 +81,7 @@ describe("Sticker Notifications", () => {
       order_ticket: "hist-ord-2",
       direction: "BUY",
       symbol: "XAUUSD",
-      price: 3234.7,
+      price: 3240.0,
       sl: 3234.0,
       idempotency_key: "12345678|sticker-layer-001",
     });
@@ -124,7 +124,7 @@ describe("Sticker Notifications", () => {
       order_ticket: "seed-ord-2",
       direction: "BUY",
       symbol: "XAUUSD",
-      price: 3234.7,
+      price: 3240.0,
       sl: 3234.0,
       idempotency_key: "12345678|sticker-open-add-layer-001",
     });
