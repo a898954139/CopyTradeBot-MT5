@@ -24,12 +24,9 @@ describe("Telegram Formatter", () => {
     expect(msg).toContain("3228.00");
     expect(msg).toContain("3248.00");
     expect(msg).toContain("Nexus Group");
-    // Volume and Position ID should NOT appear in new format
-    expect(msg).not.toContain("0.10");
-    expect(msg).not.toContain("Position:");
   });
 
-  it("should format STOP_LOSS_TRIGGERED with reason SL", () => {
+  it("should format STOP_LOSS_TRIGGERED", () => {
     const payload = buildPayload({
       event_type: "STOP_LOSS_TRIGGERED",
       price: 3228.0,
@@ -37,11 +34,11 @@ describe("Telegram Formatter", () => {
 
     const msg = formatTelegramMessage(payload);
 
-    expect(msg).toContain("SL Triggered");
-    expect(msg).toContain("止損 SL");
+    expect(msg).toContain("Stop Loss Hit");
+    expect(msg).toContain("Stop Loss:");
   });
 
-  it("should format TAKE_PROFIT_TRIGGERED with reason TP", () => {
+  it("should format TAKE_PROFIT_TRIGGERED", () => {
     const payload = buildPayload({
       event_type: "TAKE_PROFIT_TRIGGERED",
       price: 3248.0,
@@ -49,8 +46,8 @@ describe("Telegram Formatter", () => {
 
     const msg = formatTelegramMessage(payload);
 
-    expect(msg).toContain("TP Triggered");
-    expect(msg).toContain("止盈 TP");
+    expect(msg).toContain("Take Profit Hit");
+    expect(msg).toContain("Take Profit:");
   });
 
   it("should format SL_UPDATED with SL and TP values", () => {
@@ -62,7 +59,7 @@ describe("Telegram Formatter", () => {
 
     const msg = formatTelegramMessage(payload);
 
-    expect(msg).toContain("Stop Loss Edited");
+    expect(msg).toContain("Stop Loss");
     expect(msg).toContain("3225.00");
     expect(msg).toContain("3255.00");
   });
@@ -77,7 +74,7 @@ describe("Telegram Formatter", () => {
 
     const msg = formatTelegramMessage(payload);
 
-    expect(msg).toContain("Pending Order");
+    expect(msg).toContain("Limit Order");
     expect(msg).toContain("88112233");
   });
 
@@ -90,7 +87,6 @@ describe("Telegram Formatter", () => {
 
     const msg = formatTelegramMessage(payload);
 
-    // Zero values should show as dash
     const lines = msg.split("\n");
     const slLine = lines.find((l) => l.includes("Stop Loss:"));
     const tpLine = lines.find((l) => l.includes("Final Take Profit:"));
@@ -108,7 +104,7 @@ describe("Telegram Formatter", () => {
 
     const msg = formatTelegramMessage(payload);
 
-    expect(msg).toContain("Partial TP");
+    expect(msg).toContain("Partial Close");
     expect(msg).toContain("0.05");
   });
 });

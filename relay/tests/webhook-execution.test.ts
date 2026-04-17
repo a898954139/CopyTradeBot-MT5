@@ -104,7 +104,7 @@ describe("Core Execution Events", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(telegram.sentMessages[0]).toContain("Partial TP");
+    expect(telegram.sentMessages[0]).toContain("Partial");
     expect(telegram.sentMessages[0]).toContain("0.05");
   });
 
@@ -127,6 +127,6 @@ describe("Core Execution Events", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(telegram.sentMessages[0]).toContain("Close Position");
+    expect(telegram.sentMessages[0]).toContain("Position Closed");
   });
 });

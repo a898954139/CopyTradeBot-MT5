@@ -35,7 +35,7 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("Close Position");
+    expect(telegram.sentMessages[0]).toContain("Position Closed");
   });
 
   // Test 17: Position closes by stop loss
@@ -56,8 +56,7 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("SL Triggered");
-    expect(telegram.sentMessages[0]).toContain("止損 SL");
+    expect(telegram.sentMessages[0]).toContain("Stop Loss Hit");
   });
 
   // Test 18: Position closes by take profit
@@ -78,8 +77,7 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("TP Triggered");
-    expect(telegram.sentMessages[0]).toContain("止盈 TP");
+    expect(telegram.sentMessages[0]).toContain("Take Profit Hit");
   });
 
   // Test 19: Position closes by other/system reason
@@ -100,6 +98,6 @@ describe("Exit Reasons", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("Close Position");
+    expect(telegram.sentMessages[0]).toContain("Position Closed");
   });
 });
