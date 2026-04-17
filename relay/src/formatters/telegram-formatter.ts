@@ -1,5 +1,5 @@
 import type { TradeEventPayload, BusinessEvent } from "../types.js";
-import { calculatePips, formatPips, pipDistance } from "./pips.js";
+import { calculatePips, formatPips } from "./pips.js";
 import {
   isBreakEvenFromSl,
   type MarketOrderClassification,
@@ -207,18 +207,6 @@ function formatExecutionClose(
       ? (p.direction === "BUY" && p.price > openPrice) ||
         (p.direction === "SELL" && p.price < openPrice)
       : null;
-  const closeNearStopLoss =
-    p.sl > 0 && p.price > 0 && pipDistance(p.price, p.sl, p.symbol) <= 5;
-  const stopLossExitKind = closeNearStopLoss && openPrice > 0 && p.direction
-    ? isBreakEvenFromSl({
-      direction: p.direction,
-      entryPrice: openPrice,
-      stopLoss: p.sl,
-    })
-      ? "breakeven"
-      : "stop_loss"
-    : null;
-
   if (!isPartial && isProfitable === true) {
     return formatTakeProfitHit(p);
   }
