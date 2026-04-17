@@ -1,9 +1,8 @@
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import type { TradeEventPayload } from "../types.js";
 import { calculatePips } from "./pips.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// Works in both CJS (__dirname) and compiled output (dist/formatters/)
 const STICKERS_DIR = resolve(__dirname, "../../assets/stickers");
 
 // ── TP level thresholds (pips) ───────────────────────────────────

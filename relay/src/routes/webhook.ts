@@ -6,6 +6,7 @@ import type { DedupService } from "../services/dedup.js";
 import type { AuditService } from "../services/audit.js";
 import type { TelegramService } from "../services/telegram.js";
 import { formatTelegramMessage } from "../formatters/telegram-formatter.js";
+import { resolveSticker } from "../formatters/sticker-resolver.js";
 
 interface WebhookDeps {
   readonly dedup: DedupService;
@@ -101,7 +102,28 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
       }
     }
 
-    // Format and send to Telegram
+    // Send sticker photo first (if applicable), then text message
+    const stickerResult = resolveSticker(payload);
+    if (stickerResult) {
+      try {
+        await deps.telegram.sendPhoto(stickerResult.filePath);
+        deps.audit.log(
+          payload.idempotency_key,
+          "sticker_sent",
+          `sticker=${stickerResult.name}`,
+        );
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        deps.audit.log(
+          payload.idempotency_key,
+          "sticker_failed",
+          `sticker=${stickerResult.name} error=${errorMsg}`,
+        );
+        // Sticker failure does not block text message delivery
+      }
+    }
+
+    // Format and send text message to Telegram
     const message = formatTelegramMessage(payload, overallProfitable);
     let messageId: string | undefined;
 
