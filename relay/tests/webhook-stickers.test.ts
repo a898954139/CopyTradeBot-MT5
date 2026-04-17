@@ -17,7 +17,7 @@ describe("Sticker Notifications", () => {
     app = createApp({ db, webhookSecret: TEST_SECRET, telegram });
   });
 
-  it("should send BUY sticker photo before text on POSITION_OPENED BUY", async () => {
+  it("should send text then BUY sticker photo on POSITION_OPENED BUY", async () => {
     const payload = buildPayload({
       event_type: "POSITION_OPENED",
       direction: "BUY",
@@ -116,7 +116,7 @@ describe("Sticker Notifications", () => {
     expect(telegram.sentMessages).toHaveLength(1);
   });
 
-  it("should still send text message when sticker photo fails", async () => {
+  it("should still return success when sticker photo fails", async () => {
     // Override sendPhoto to throw
     telegram.sendPhoto = async () => {
       throw new Error("Photo upload failed");
@@ -137,7 +137,7 @@ describe("Sticker Notifications", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    // Text message should still be sent
+    // Text message should still have been sent
     expect(telegram.sentMessages).toHaveLength(1);
     expect(telegram.sentMessages[0]).toContain("Market Order");
   });

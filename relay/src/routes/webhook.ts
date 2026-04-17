@@ -102,28 +102,7 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
       }
     }
 
-    // Send sticker photo first (if applicable), then text message
-    const stickerResult = resolveSticker(payload);
-    if (stickerResult) {
-      try {
-        await deps.telegram.sendPhoto(stickerResult.filePath);
-        deps.audit.log(
-          payload.idempotency_key,
-          "sticker_sent",
-          `sticker=${stickerResult.name}`,
-        );
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        deps.audit.log(
-          payload.idempotency_key,
-          "sticker_failed",
-          `sticker=${stickerResult.name} error=${errorMsg}`,
-        );
-        // Sticker failure does not block text message delivery
-      }
-    }
-
-    // Format and send text message to Telegram
+    // Format and send text message first, then sticker image
     const message = formatTelegramMessage(payload, overallProfitable);
     let messageId: string | undefined;
 
@@ -153,6 +132,27 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
       };
       res.status(502).json(response);
       return;
+    }
+
+    // Send sticker image after text message (if applicable)
+    const stickerResult = resolveSticker(payload);
+    if (stickerResult) {
+      try {
+        await deps.telegram.sendPhoto(stickerResult.filePath);
+        deps.audit.log(
+          payload.idempotency_key,
+          "sticker_sent",
+          `sticker=${stickerResult.name}`,
+        );
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        deps.audit.log(
+          payload.idempotency_key,
+          "sticker_failed",
+          `sticker=${stickerResult.name} error=${errorMsg}`,
+        );
+        // Sticker failure does not block response
+      }
     }
 
     // Step 5: Success response
