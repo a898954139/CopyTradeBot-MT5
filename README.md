@@ -6,6 +6,30 @@ MT5 Expert Advisor that captures trade events from a TMGM-backed MT5 account and
 
 **Flow:** MT5 EA (MQL5) → Webhook POST → Relay Service (TypeScript/Express) → Telegram Bot API
 
+## Relay Classification Flow
+
+```mermaid
+flowchart TD
+    A[Webhook event arrives] --> B[Validate payload]
+    B --> C[Dedup check]
+    C -->|duplicate| D[Return duplicate response]
+    C -->|new event| E{POSITION_OPENED or POSITION_INCREASED?}
+    E -->|no| F[Format message from event type]
+    E -->|yes| G[Load same-symbol same-direction history from SQLite]
+    G --> H[Rebuild tracked orders]
+    H --> I[Keep only non-BE open orders]
+    I --> J[Pick most recent qualifying entry]
+    J --> K{abs(new order price - recent entry) <= 10.0?}
+    K -->|yes| L[Classification = add_layer]
+    K -->|no| M[Classification = new_order]
+    L --> N[Format message + sticker]
+    M --> N
+    F --> N
+    N --> O[Send Telegram message first]
+    O --> P[Send image as reply to message]
+    P --> Q[Return success]
+```
+
 ## Prerequisites
 
 - **Node.js** v20+ (recommend using [nvm](https://github.com/nvm-sh/nvm))
