@@ -40,7 +40,7 @@ describe("Core Execution Events", () => {
     expect(res.body.message_id).toBeDefined();
     expect(telegram.sentMessages).toHaveLength(1);
     expect(telegram.sentMessages[0]).toContain("XAUUSD");
-    expect(telegram.sentMessages[0]).toContain("Market Order");
+    expect(telegram.sentMessages[0]).toContain("BUY NOW");
   });
 
   // Test 2: Market SELL opens new position
@@ -83,7 +83,7 @@ describe("Core Execution Events", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(telegram.sentMessages[0]).toContain("Market Order");
+    expect(telegram.sentMessages[0]).toContain("BUY NOW");
   });
 
   // Test 4: Partial close existing position

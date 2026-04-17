@@ -37,7 +37,7 @@ describe("Pending Order Lifecycle", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(telegram.sentMessages[0]).toContain("Pending Order");
+    expect(telegram.sentMessages[0]).toContain("BUY LIMIT");
   });
 
   // Test 7: Modify pending order price
@@ -104,7 +104,7 @@ describe("Pending Order Lifecycle", () => {
       .send(body);
 
     expect(res.status).toBe(200);
-    expect(telegram.sentMessages[0]).toContain("Order Cancelled");
+    expect(telegram.sentMessages[0]).toContain("Limit Cancelled");
   });
 
   // Test 10: Pending order fills into live position
