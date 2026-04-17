@@ -107,4 +107,84 @@ describe("Telegram Formatter", () => {
     expect(msg).toContain("Partial Close");
     expect(msg).toContain("0.05");
   });
+
+  it("should include pips in partial close message", () => {
+    const payload = buildPayload({
+      event_type: "POSITION_PARTIALLY_CLOSED",
+      direction: "BUY",
+      open_price: 3234.56,
+      price: 3237.56, // +30 pips
+      volume: 0.05,
+      symbol: "XAUUSD",
+    });
+
+    const msg = formatTelegramMessage(payload);
+
+    expect(msg).toContain("Pips:");
+    expect(msg).toContain("+30.0");
+  });
+
+  it("should include pips in full close message", () => {
+    const payload = buildPayload({
+      event_type: "POSITION_CLOSED",
+      direction: "SELL",
+      open_price: 3240.0,
+      price: 3235.0, // +50 pips profit for SELL
+      volume: 0.1,
+      symbol: "XAUUSD",
+    });
+
+    const msg = formatTelegramMessage(payload);
+
+    expect(msg).toContain("Pips:");
+    expect(msg).toContain("+50.0");
+  });
+
+  it("should include negative pips for losing close", () => {
+    const payload = buildPayload({
+      event_type: "POSITION_CLOSED",
+      direction: "BUY",
+      open_price: 3240.0,
+      price: 3238.0, // -20 pips loss
+      volume: 0.1,
+      symbol: "XAUUSD",
+    });
+
+    const msg = formatTelegramMessage(payload);
+
+    expect(msg).toContain("Pips:");
+    expect(msg).toContain("-20.0");
+  });
+
+  it("should include pips in STOP_LOSS_TRIGGERED message", () => {
+    const payload = buildPayload({
+      event_type: "STOP_LOSS_TRIGGERED",
+      direction: "BUY",
+      open_price: 3240.0,
+      price: 3235.0, // -50 pips
+      volume: 0.1,
+      symbol: "XAUUSD",
+    });
+
+    const msg = formatTelegramMessage(payload);
+
+    expect(msg).toContain("Pips:");
+    expect(msg).toContain("-50.0");
+  });
+
+  it("should include pips in TAKE_PROFIT_TRIGGERED message", () => {
+    const payload = buildPayload({
+      event_type: "TAKE_PROFIT_TRIGGERED",
+      direction: "BUY",
+      open_price: 3234.56,
+      price: 3254.56, // +200 pips
+      volume: 0.1,
+      symbol: "XAUUSD",
+    });
+
+    const msg = formatTelegramMessage(payload);
+
+    expect(msg).toContain("Pips:");
+    expect(msg).toContain("+200.0");
+  });
 });

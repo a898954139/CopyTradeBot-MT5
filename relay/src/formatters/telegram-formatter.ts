@@ -1,4 +1,5 @@
 import type { TradeEventPayload, BusinessEvent } from "../types.js";
+import { calculatePips, formatPips } from "./pips.js";
 
 // ── Event family grouping ─────────────────────────────────────────
 type EventFamily =
@@ -202,6 +203,11 @@ function formatExecutionClose(
 
   const dir = dirLabelBranded(p.direction);
 
+  // Calculate pips from entry to close
+  const pipsLine = openPrice > 0 && p.price > 0 && p.direction
+    ? `\u{1F4CA} Pips: <b>${formatPips(calculatePips(openPrice, p.price, p.symbol, p.direction))}</b>`
+    : null;
+
   return [
     `<b>${closeHeader}</b>`,
     "",
@@ -210,6 +216,7 @@ function formatExecutionClose(
     "",
     openPrice > 0 ? `\u{1F4CA} \u5F00\u4ED3\u4EF7\u683C Entry Price: <b>${formatPrice(openPrice)}</b>` : null,
     `${closePriceLabel}: <b>${formatPrice(p.price)}</b>`,
+    pipsLine,
     `\u{1F4CC} \u5E73\u4ED3\u624B\u6570 Closed Volume: <b>${p.volume.toFixed(2)}</b>${closePercent ? ` (${closePercent}%)` : ""}`,
     totalBeforeClose > 0 ? `\u{1F4CC} \u603B\u624B\u6570 Total Volume: ${totalBeforeClose.toFixed(2)}` : null,
     "",
@@ -343,6 +350,11 @@ function formatSLTPTriggered(
     : null;
   const dir = dirLabelBranded(p.direction);
 
+  // Calculate pips from entry to close
+  const pipsLine = openPrice > 0 && p.price > 0 && p.direction
+    ? `\u{1F4CA} Pips: <b>${formatPips(calculatePips(openPrice, p.price, p.symbol, p.direction))}</b>`
+    : null;
+
   return [
     `<b>${triggerHeader}</b>`,
     "",
@@ -351,6 +363,7 @@ function formatSLTPTriggered(
     "",
     openPrice > 0 ? `\u{1F4CA} \u5F00\u4ED3\u4EF7\u683C Entry Price: <b>${formatPrice(openPrice)}</b>` : null,
     `${closePriceLabel}: <b>${formatPrice(p.price)}</b>`,
+    pipsLine,
     `\u{1F4CC} \u5E73\u4ED3\u624B\u6570 Closed Volume: <b>${p.volume.toFixed(2)}</b>${closePercent ? ` (${closePercent}%)` : ""}`,
     totalVol > 0 ? `\u{1F4CC} \u603B\u624B\u6570 Total Volume: ${totalVol.toFixed(2)}` : null,
     "",
