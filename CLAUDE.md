@@ -1,110 +1,84 @@
-<!-- SPECTRA:START v1.0.1 -->
+# Repository Guidance Summary
 
-# Spectra Instructions
+## Spectra workflow
+This repo uses Spectra for spec-driven development.
 
-This project uses Spectra for Spec-Driven Development(SDD). Specs live in `openspec/specs/`, change proposals in `openspec/changes/`.
+- Specs: `openspec/specs/`
+- Change proposals: `openspec/changes/`
+- Main flow: `discuss? → propose → apply ⇄ ingest → archive`
+- Parked changes: use `spectra list --parked` and `spectra unpark <name>` when needed
 
-## Use `/spectra:*` skills when:
+Use the matching Spectra command style for the active tool surface:
+- Claude-style: `/spectra:discuss`, `/spectra:propose`, `/spectra:apply`, `/spectra:ingest`, `/spectra:ask`, `/spectra:archive`
+- Agent-style: `$spectra-discuss`, `$spectra-propose`, `$spectra-apply`, `$spectra-ingest`, `$spectra-ask`, `$spectra-archive`
 
-- A discussion needs structure before coding → `/spectra:discuss`
-- User wants to plan, propose, or design a change → `/spectra:propose`
-- Tasks are ready to implement → `/spectra:apply`
-- There's an in-progress change to continue → `/spectra:ingest`
-- User asks about specs or how something works → `/spectra:ask`
-- Implementation is done → `/spectra:archive`
+## Project overview
+MT5 Expert Advisor captures TMGM-backed MT5 trade events and forwards normalized notifications to Telegram through a relay service.
 
-## Workflow
+Flow:
+`MT5 EA (MQL5) → Webhook POST → Relay Service (TypeScript/Express) → Telegram Bot API`
 
-discuss? → propose → apply ⇄ ingest → archive
-
-- `discuss` is optional — skip if requirements are clear
-- Requirements change mid-work? Plan mode → `ingest` → resume `apply`
-
-## Parked Changes
-
-Changes can be parked（暫存）— temporarily moved out of `openspec/changes/`. Parked changes won't appear in `spectra list` but can be found with `spectra list --parked`. To restore: `spectra unpark <name>`. The `/spectra:apply` and `/spectra:ingest` skills handle parked changes automatically.
-
-<!-- SPECTRA:END -->
-
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
-
-MT5 Expert Advisor that captures trade events from a TMGM-backed MT5 account and pushes normalized notifications to Telegram through a relay service.
-
-**Flow:** MT5 EA (MQL5) → Webhook POST → Relay Service (TypeScript/Express) → Telegram Bot API
-
-## Commands
-
-### Relay Service (from `relay/` directory)
-
+## Relay commands (`relay/`)
 ```bash
-npm run dev          # Development with hot reload (tsx watch)
-npm run build        # Compile TypeScript to dist/
-npm start            # Run compiled output
-npm test             # Run all tests (vitest)
-npm run test:watch   # Watch mode
-npx tsc --noEmit     # Type check without emitting
+npm run dev
+npm run build
+npm start
+npm test
+npm run test:watch
+npx tsc --noEmit
 ```
 
-### EA Deployment (copy files to MT5 Mac Wine path)
-
+## EA deployment notes
 ```bash
 MT5_MQL5="/Users/anthony/Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/Program Files/MetaTrader 5/MQL5"
 cp ea/Include/*.mqh "$MT5_MQL5/Include/CopyTradeBot/"
 cp ea/Experts/TelegramRelay.mq5 "$MT5_MQL5/Experts/"
-# Then compile in MetaEditor (F4 to open, F7 to compile)
 ```
+Compile in MetaEditor after copying.
 
-### Reading EA Logs (UTF-16LE encoded)
-
+EA logs are UTF-16LE, for example:
 ```bash
 iconv -f UTF-16LE -t UTF-8 "$MT5_MQL5/Logs/$(date +%Y%m%d).log" | tail -20
 ```
 
-## Architecture
+## Architecture summary
+EA pipeline:
+`Listener → Normalizer → Classifier → Serializer → Sender`
 
-### EA Modules (`ea/Include/`)
+Important modules:
+- `ea/Include/EventNormalizer.mqh` — builds normalized trade-event DTOs
+- `ea/Include/EventClassifier.mqh` — classifies pending, execution, and SL/TP events
+- `ea/Experts/TelegramRelay.mq5` — main EA with dedup ring buffer and SL/TP cache
+- `relay/src/formatters/telegram-formatter.ts` — bilingual Telegram message formatting
+- `relay/src/routes/webhook.ts` — webhook intake, dedup, message + sticker dispatch
+- `relay/src/services/dedup.ts` — SQLite-backed event dedup / history lookup
 
-The EA follows a strict pipeline: **Listener → Normalizer → Classifier → Serializer → Sender**.
+## Key business rules
+- Close deals are flipped so Telegram shows the original position direction, not the closing deal direction.
+- MT5 position updates do not explicitly say whether SL or TP changed, so the EA caches prior values per position.
+- Partial close formatting reconstructs total volume from remaining + closed volume.
+- Full close may need history lookup to recover original open price.
+- Relay currently treats SL at/through entry as breakeven for BE-style messaging.
 
-- `EventNormalizer.mqh` — Transforms raw `MqlTradeTransaction` into `NormalizedTradeEventCandidate` DTO. Enriches from deal history, order, and position APIs. For OUT deals, flips deal direction to report original position direction.
-- `EventClassifier.mqh` — Table-driven 3-step classification: (1) pending order lifecycle via `TRADE_TRANSACTION_ORDER_ADD/UPDATE/DELETE`, (2) deal-based execution via `TRADE_TRANSACTION_DEAL_ADD`, (3) SL/TP modification via `TRADE_TRANSACTION_POSITION`.
-- `TelegramRelay.mq5` — Main EA. Maintains a 256-entry dedup ring buffer and 64-entry SL/TP cache per position (to distinguish SL vs TP changes since MT5 doesn't tell you which field changed).
+## Message labels
+- Open position → `🟢 開倉 Open Position`
+- Partial close profit → `💵 收走部分利潤 Partial TP`
+- Full close profit → `💰 止盈出場 Take Profit`
+- Full close loss → `📉 止損出場 Stop Loss`
+- SL modified → `🛡️ 修改止損 SL Updated`
+- Breakeven pushed → `🆙 保護推上 Breakeven+`
+- TP modified → `🎯 修改止盈 TP Updated`
+- SL triggered → `🚨 止損觸發 SL Triggered`
+- TP triggered → `🏆 止盈觸發 TP Triggered`
 
-### Relay Service (`relay/src/`)
+## Testing and environment
+- Tests use `StubTelegramService` and `createTestDb()`.
+- Helper utilities live in `relay/tests/helpers.ts`.
+- Relay `.env` requires:
+  - `WEBHOOK_SECRET`
+  - `TELEGRAM_BOT_TOKEN`
+  - `TELEGRAM_CHAT_ID`
+  - optional `DB_PATH`
 
-- Auth middleware currently **bypassed** (MQL5's `CryptEncode` does SHA256 not HMAC-SHA256). TODO: fix HMAC alignment.
-- `telegram-formatter.ts` — Family-based formatting with bilingual labels (English + Traditional Chinese). Key business logic: partial close always shows "收走部分利潤", full close judges profit/loss based on direction + entry vs close price. SL >= entry price (BUY) = "保護推上 Breakeven+".
-- SQLite with WAL mode for dedup (`processed_events` table, PK on `idempotency_key`).
-
-## Key Design Decisions
-
-- **Direction on close events**: The closing deal's type is opposite to position (SELL deal closes BUY position). EA flips this so Telegram always shows the original position direction.
-- **SL/TP cache**: MT5's `TRADE_TRANSACTION_POSITION` event carries both SL and TP values but doesn't indicate which changed. EA caches previous values per position to detect which field actually changed.
-- **total_volume for partial close**: Position's `POSITION_VOLUME` after a partial close is the *remaining* volume. Formatter adds closed volume back to compute the original total: `totalBeforeClose = remaining + closed`.
-- **open_price on full close**: When position is fully closed, `PositionSelectByTicket` fails. EA falls back to `HistorySelectByPosition` to find the opening deal's price.
-
-## Message Format Rules
-
-| Scenario | Label |
-|----------|-------|
-| Open position | 🟢 開倉 Open Position |
-| Partial close (always profitable) | 💵 收走部分利潤 Partial TP |
-| Full close + profit | 💰 止盈出場 Take Profit |
-| Full close + loss | 📉 止損出場 Stop Loss |
-| SL below entry (BUY) / above entry (SELL) | 🛡️ 修改止損 SL Updated |
-| SL >= entry (BUY) / <= entry (SELL) | 🆙 保護推上 Breakeven+ |
-| TP modified | 🎯 修改止盈 TP Updated |
-| SL triggered | 🚨 止損觸發 SL Triggered |
-| TP triggered | 🏆 止盈觸發 TP Triggered |
-
-## Testing
-
-Tests use `StubTelegramService` (captures messages without API calls) and `createTestDb()` (in-memory SQLite). Test helpers in `tests/helpers.ts` provide `buildPayload()` and `makeHeaders()` for constructing signed requests.
-
-## Environment
-
-Relay `.env` requires: `WEBHOOK_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. See `.env.example`.
+## Current implementation note
+Webhook auth middleware is still bypassed because MQL5 SHA256 handling is not yet aligned with HMAC-SHA256 expectations.

@@ -7,6 +7,10 @@ import type { AuditService } from "../services/audit.js";
 import type { TelegramService } from "../services/telegram.js";
 import { formatTelegramMessage } from "../formatters/telegram-formatter.js";
 import { resolveSticker } from "../formatters/sticker-resolver.js";
+import {
+  classifyMarketOrderFromHistory,
+  type MarketOrderClassification,
+} from "../domain/market-order-classifier.js";
 
 interface WebhookDeps {
   readonly dedup: DedupService;
@@ -42,6 +46,7 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
     }
 
     const payload = parsed.data;
+    let marketOrderClassification: MarketOrderClassification | undefined;
 
     // Step 2: Dedup check
     const dedupResult = deps.dedup.check(payload.idempotency_key);
@@ -56,6 +61,17 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
       };
       res.status(200).json(response);
       return;
+    }
+
+    if (
+      (payload.event_type === "POSITION_OPENED" ||
+        payload.event_type === "POSITION_INCREASED") &&
+      payload.direction
+    ) {
+      marketOrderClassification = classifyMarketOrderFromHistory(
+        payload,
+        deps.dedup.getExecutionHistory(payload.symbol, payload.direction),
+      );
     }
 
     // Step 3: Record in dedup table (before sending to prevent race)
@@ -103,7 +119,11 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
     }
 
     // Format and send text message first, then sticker image
-    const message = formatTelegramMessage(payload, overallProfitable);
+    const message = formatTelegramMessage(
+      payload,
+      overallProfitable,
+      marketOrderClassification,
+    );
     let messageId: string | undefined;
 
     try {
@@ -116,18 +136,18 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
       );
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      deps.dedup.remove(payload.idempotency_key);
       deps.audit.log(
         payload.idempotency_key,
         "telegram_failed",
         errorMsg,
       );
 
-      // Event is recorded in dedup — don't re-process on retry.
-      // Respond with accepted so EA doesn't re-send.
+      // Telegram delivery failed, so remove the dedup record and allow retries.
       const response: RelayResponse = {
         ok: false,
         duplicate: false,
-        accepted: true,
+        accepted: false,
         error: "Telegram delivery failed",
       };
       res.status(502).json(response);
@@ -135,10 +155,10 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
     }
 
     // Send sticker image after text message (if applicable)
-    const stickerResult = resolveSticker(payload);
+    const stickerResult = resolveSticker(payload, marketOrderClassification);
     if (stickerResult) {
       try {
-        await deps.telegram.sendPhoto(stickerResult.filePath);
+        await deps.telegram.sendPhoto(stickerResult.filePath, messageId);
         deps.audit.log(
           payload.idempotency_key,
           "sticker_sent",

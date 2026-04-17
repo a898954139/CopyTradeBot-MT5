@@ -1,5 +1,9 @@
 import type { TradeEventPayload, BusinessEvent } from "../types.js";
-import { calculatePips, formatPips } from "./pips.js";
+import { calculatePips, formatPips, pipDistance } from "./pips.js";
+import {
+  isBreakEvenFromSl,
+  type MarketOrderClassification,
+} from "../domain/market-order-classifier.js";
 
 // ── Event family grouping ─────────────────────────────────────────
 type EventFamily =
@@ -45,6 +49,7 @@ const EVENT_LABEL: Record<BusinessEvent, string> = {
 export function formatTelegramMessage(
   payload: TradeEventPayload,
   overallProfitable?: boolean | null,
+  classification?: MarketOrderClassification,
 ): string {
   const family = EVENT_FAMILY_MAP[payload.event_type];
   const label = EVENT_LABEL[payload.event_type];
@@ -52,7 +57,7 @@ export function formatTelegramMessage(
 
   switch (family) {
     case "execution_open":
-      return formatExecutionOpen(header, payload);
+      return formatExecutionOpen(header, payload, classification);
     case "execution_close":
       return formatExecutionClose(header, payload, overallProfitable);
     case "pending_order":
@@ -127,12 +132,16 @@ function formatTime(isoString: string): string {
 function formatExecutionOpen(
   _header: string,
   p: TradeEventPayload,
+  classification?: MarketOrderClassification,
 ): string {
   const slDisplay = p.sl > 0 ? `<b>${formatPrice(p.sl)}</b>` : "\u2014";
   const tpDisplay = p.tp > 0 ? `<b>${formatPrice(p.tp)}</b>` : "\u2014";
+  const openHeader = classification?.kind === "add_layer"
+    ? "<b>➕ 加倉 Add Position</b>"
+    : "<b>\u{1F4CA} \u5E02\u573A\u5355 Market Order</b>";
 
   return [
-    `<b>\u{1F4CA} \u5E02\u573A\u5355 Market Order</b>`,
+    openHeader,
     "",
     `<b>${symbolLabel(p.symbol)}</b>`,
     `<b>${dirLabelMarket(p.direction)}</b>`,
@@ -173,6 +182,17 @@ function formatExecutionClose(
       ? (p.direction === "BUY" && p.price > openPrice) ||
         (p.direction === "SELL" && p.price < openPrice)
       : null;
+  const closeNearStopLoss =
+    p.sl > 0 && p.price > 0 && pipDistance(p.price, p.sl, p.symbol) <= 5;
+  const stopLossExitKind = closeNearStopLoss && openPrice > 0 && p.direction
+    ? isBreakEvenFromSl({
+      direction: p.direction,
+      entryPrice: openPrice,
+      stopLoss: p.sl,
+    })
+      ? "breakeven"
+      : "stop_loss"
+    : null;
 
   // Determine header and close price label
   let closeHeader: string;
@@ -188,6 +208,12 @@ function formatExecutionClose(
       closeHeader = "\u{1F4CA} \u90E8\u5206\u5E73\u4ED3 Partial Close";
       closePriceLabel = "\u{1F4CA} \u5E73\u4ED3\u4EF7\u683C Close Price";
     }
+  } else if (stopLossExitKind === "breakeven") {
+    closeHeader = "\u{1F6E1} \u4FDD\u62A4\u89E6\u53D1 Break-Even Hit";
+    closePriceLabel = "\u{1F6E1} \u5E73\u4ED3\u4EF7\u683C Break-Even";
+  } else if (stopLossExitKind === "stop_loss") {
+    closeHeader = "\u274C \u6B62\u635F\u79BB\u573A Stop Loss Hit";
+    closePriceLabel = "\u274C \u5E73\u4ED3\u4EF7\u683C Stop Loss";
   } else if (isProfitable !== null) {
     if (isProfitable) {
       closeHeader = "\u{1F3C6} \u6B62\u76C8\u79BB\u573A Take Profit Hit";
@@ -326,10 +352,13 @@ function formatSLTPTriggered(
   const isSL = p.event_type === "STOP_LOSS_TRIGGERED";
   const openPrice = p.open_price ?? 0;
 
-  // Detect break-even hit: SL triggered but close price >= entry (BUY) or <= entry (SELL)
-  const isBreakEvenHit = isSL && openPrice > 0 && p.price > 0 && p.direction &&
-    ((p.direction === "BUY" && p.price >= openPrice) ||
-     (p.direction === "SELL" && p.price <= openPrice));
+  // Detect break-even hit from the protective stop level, not close price alone.
+  const isBreakEvenHit = isSL && openPrice > 0 && p.sl > 0 && p.direction &&
+    isBreakEvenFromSl({
+      direction: p.direction,
+      entryPrice: openPrice,
+      stopLoss: p.sl,
+    });
 
   let triggerHeader: string;
   let closePriceLabel: string;

@@ -1,6 +1,10 @@
 import { resolve } from "node:path";
 import type { TradeEventPayload } from "../types.js";
-import { calculatePips } from "./pips.js";
+import { calculatePips, pipDistance } from "./pips.js";
+import {
+  isBreakEvenFromSl,
+  type MarketOrderClassification,
+} from "../domain/market-order-classifier.js";
 
 // Works in both CJS (__dirname) and compiled output (dist/formatters/)
 const STICKERS_DIR = resolve(__dirname, "../../assets/stickers");
@@ -28,11 +32,12 @@ export interface StickerResult {
  */
 export function resolveSticker(
   payload: TradeEventPayload,
+  classification?: MarketOrderClassification,
 ): StickerResult | null {
   switch (payload.event_type) {
     case "POSITION_OPENED":
     case "POSITION_INCREASED":
-      return resolveOpenSticker(payload);
+      return resolveOpenSticker(payload, classification);
 
     case "POSITION_PARTIALLY_CLOSED":
       return resolvePartialCloseSticker(payload);
@@ -45,15 +50,18 @@ export function resolveSticker(
       return resolveSlUpdateSticker(payload);
 
     case "STOP_LOSS_TRIGGERED":
-      return sticker("sl-hit.png", "SL Hit");
+      return resolveStopLossTriggeredSticker(payload);
 
     default:
       return null;
   }
 }
 
-function resolveOpenSticker(p: TradeEventPayload): StickerResult | null {
-  if (p.event_type === "POSITION_INCREASED") {
+function resolveOpenSticker(
+  p: TradeEventPayload,
+  classification?: MarketOrderClassification,
+): StickerResult | null {
+  if (classification?.kind === "add_layer") {
     return p.direction === "BUY"
       ? sticker("add-layer-green.png", "Add Layer Green")
       : sticker("add-layer-red.png", "Add Layer Red");
@@ -84,8 +92,20 @@ function resolveFullCloseSticker(p: TradeEventPayload): StickerResult | null {
   if (openPrice <= 0 || p.price <= 0 || !p.direction) return null;
 
   const pips = calculatePips(openPrice, p.price, p.symbol, p.direction);
+  const closeNearStopLoss =
+    p.sl > 0 && pipDistance(p.price, p.sl, p.symbol) <= BE_TOLERANCE_PIPS;
 
-  // BE Out: close within ~5 pips of entry
+  if (closeNearStopLoss) {
+    return isBreakEvenFromSl({
+      direction: p.direction,
+      entryPrice: openPrice,
+      stopLoss: p.sl,
+    })
+      ? sticker("be-out.png", "BE Out")
+      : sticker("sl-hit.png", "SL Hit");
+  }
+
+  // BE Out: manual/full close within ~5 pips of entry
   if (Math.abs(pips) <= BE_TOLERANCE_PIPS) {
     return sticker("be-out.png", "BE Out");
   }
@@ -103,15 +123,32 @@ function resolveSlUpdateSticker(p: TradeEventPayload): StickerResult | null {
   const entryPrice = p.open_price ?? p.price;
   if (p.sl <= 0 || entryPrice <= 0 || !p.direction) return null;
 
-  // BE detection: BUY → SL >= entry, SELL → SL <= entry
-  const isBreakEven =
-    (p.direction === "BUY" && p.sl >= entryPrice) ||
-    (p.direction === "SELL" && p.sl <= entryPrice);
+  const isBreakEven = isBreakEvenFromSl({
+    direction: p.direction,
+    entryPrice,
+    stopLoss: p.sl,
+  });
 
   if (isBreakEven) {
     return sticker("move-sl-to-be.png", "Move SL to BE");
   }
   return null;
+}
+
+function resolveStopLossTriggeredSticker(
+  p: TradeEventPayload,
+): StickerResult | null {
+  const entryPrice = p.open_price ?? 0;
+  if (entryPrice > 0 && p.sl > 0 && p.direction) {
+    return isBreakEvenFromSl({
+      direction: p.direction,
+      entryPrice,
+      stopLoss: p.sl,
+    })
+      ? sticker("be-out.png", "BE Out")
+      : sticker("sl-hit.png", "SL Hit");
+  }
+  return sticker("sl-hit.png", "SL Hit");
 }
 
 function sticker(filename: string, name: string): StickerResult {

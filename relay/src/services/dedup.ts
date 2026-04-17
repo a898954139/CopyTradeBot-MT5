@@ -44,6 +44,32 @@ export class DedupService {
       });
   }
 
+  getExecutionHistory(
+    symbol: string,
+    direction: "BUY" | "SELL",
+  ): TradeEventPayload[] {
+    const rows = this.db
+      .prepare(
+        `SELECT payload FROM processed_events
+         WHERE event_type IN (
+           'POSITION_OPENED',
+           'POSITION_INCREASED',
+           'POSITION_PARTIALLY_CLOSED',
+           'POSITION_CLOSED',
+           'SL_UPDATED',
+           'SL_AND_TP_UPDATED',
+           'STOP_LOSS_TRIGGERED',
+           'TAKE_PROFIT_TRIGGERED'
+         )
+         AND json_extract(payload, '$.symbol') = ?
+         AND json_extract(payload, '$.direction') = ?
+         ORDER BY json_extract(payload, '$.occurred_at') ASC, received_at ASC, rowid ASC`,
+      )
+      .all(symbol, direction) as { payload: string }[];
+
+    return rows.map((row) => JSON.parse(row.payload) as TradeEventPayload);
+  }
+
   /** Find all previous close events for a position to calculate overall P&L */
   getPositionCloses(positionId: string): TradeEventPayload[] {
     const rows = this.db
@@ -63,5 +89,11 @@ export class DedupService {
         "UPDATE processed_events SET telegram_message_id = @msgId WHERE idempotency_key = @key",
       )
       .run({ msgId: messageId, key: idempotencyKey });
+  }
+
+  remove(idempotencyKey: string): void {
+    this.db
+      .prepare("DELETE FROM processed_events WHERE idempotency_key = ?")
+      .run(idempotencyKey);
   }
 }

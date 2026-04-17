@@ -23,23 +23,34 @@ describe("Sticker Resolver", () => {
     });
   });
 
-  describe("Add layer (POSITION_INCREASED)", () => {
-    it("should resolve green layer for BUY increase", () => {
+  describe("Add layer classification", () => {
+    it("should resolve green layer when classification says add_layer", () => {
       const result = resolveSticker(
-        buildPayload({ event_type: "POSITION_INCREASED", direction: "BUY" }),
+        buildPayload({ event_type: "POSITION_OPENED", direction: "BUY" }),
+        { kind: "add_layer", matchedPositionId: "pos-1" },
       );
       expect(result).not.toBeNull();
       expect(result!.name).toBe("Add Layer Green");
       expect(result!.filePath).toContain("add-layer-green.png");
     });
 
-    it("should resolve red layer for SELL increase", () => {
+    it("should resolve red layer when classification says add_layer", () => {
       const result = resolveSticker(
         buildPayload({ event_type: "POSITION_INCREASED", direction: "SELL" }),
+        { kind: "add_layer", matchedPositionId: "pos-1" },
       );
       expect(result).not.toBeNull();
       expect(result!.name).toBe("Add Layer Red");
       expect(result!.filePath).toContain("add-layer-red.png");
+    });
+
+    it("should resolve normal BUY sticker when classification is new_order", () => {
+      const result = resolveSticker(
+        buildPayload({ event_type: "POSITION_INCREASED", direction: "BUY" }),
+        { kind: "new_order" },
+      );
+      expect(result).not.toBeNull();
+      expect(result!.filePath).toContain("buy.png");
     });
   });
 
@@ -151,6 +162,38 @@ describe("Sticker Resolver", () => {
           direction: "BUY",
           open_price: 4400,
           price: 4400.5, // +5 pips = BE
+          symbol: "XAUUSD",
+        }),
+      );
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe("BE Out");
+      expect(result!.filePath).toContain("be-out.png");
+    });
+
+    it("should resolve SL Hit for stop-loss exits even when close is near entry", () => {
+      const result = resolveSticker(
+        buildPayload({
+          event_type: "POSITION_CLOSED",
+          direction: "BUY",
+          open_price: 4400,
+          price: 4399.8, // near entry but still below it
+          sl: 4399.8, // actual stop loss was hit below entry
+          symbol: "XAUUSD",
+        }),
+      );
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe("SL Hit");
+      expect(result!.filePath).toContain("sl-hit.png");
+    });
+
+    it("should resolve BE Out for stop-loss exits triggered above entry", () => {
+      const result = resolveSticker(
+        buildPayload({
+          event_type: "STOP_LOSS_TRIGGERED",
+          direction: "BUY",
+          open_price: 4400,
+          price: 4400.5,
+          sl: 4400.5,
           symbol: "XAUUSD",
         }),
       );

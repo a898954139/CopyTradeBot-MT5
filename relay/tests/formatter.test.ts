@@ -156,6 +156,38 @@ describe("Telegram Formatter", () => {
     expect(msg).toContain("-20.0");
   });
 
+  it("should format stop-loss close near entry as Stop Loss Hit, not Take Profit", () => {
+    const payload = buildPayload({
+      event_type: "POSITION_CLOSED",
+      direction: "BUY",
+      open_price: 4400,
+      price: 4399.8, // near entry
+      sl: 4399.8, // but stop loss stayed below entry
+      symbol: "XAUUSD",
+    });
+
+    const msg = formatTelegramMessage(payload);
+
+    expect(msg).toContain("Stop Loss Hit");
+    expect(msg).not.toContain("Take Profit Hit");
+  });
+
+  it("should format STOP_LOSS_TRIGGERED above entry as Break-Even Hit", () => {
+    const payload = buildPayload({
+      event_type: "STOP_LOSS_TRIGGERED",
+      direction: "BUY",
+      open_price: 4400,
+      price: 4400.5,
+      sl: 4400.5,
+      symbol: "XAUUSD",
+    });
+
+    const msg = formatTelegramMessage(payload);
+
+    expect(msg).toContain("Break-Even Hit");
+    expect(msg).not.toContain("Stop Loss Hit");
+  });
+
   it("should include pips in STOP_LOSS_TRIGGERED message", () => {
     const payload = buildPayload({
       event_type: "STOP_LOSS_TRIGGERED",
