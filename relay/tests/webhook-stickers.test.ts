@@ -197,7 +197,7 @@ describe("Sticker Notifications", () => {
     expect(res.status).toBe(200);
     expect(telegram.sentPhotos).toHaveLength(3);
     expect(telegram.sentPhotos[2]).toContain("buy.png");
-    expect(telegram.sentMessages[2]).toContain("Market Order");
+    expect(telegram.sentMessages[2]).toContain("BUY NOW");
   });
 
   it("should send move-sl-to-be sticker on SL_UPDATED at breakeven", async () => {
@@ -264,7 +264,7 @@ describe("Sticker Notifications", () => {
     expect(res.body.ok).toBe(true);
     // Text message should still have been sent
     expect(telegram.sentMessages).toHaveLength(1);
-    expect(telegram.sentMessages[0]).toContain("Market Order");
+    expect(telegram.sentMessages[0]).toContain("BUY NOW");
   });
 
   it("should send sl-hit sticker on STOP_LOSS_TRIGGERED", async () => {

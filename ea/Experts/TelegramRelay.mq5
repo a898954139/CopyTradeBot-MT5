@@ -17,7 +17,7 @@
 #include <CopyTradeBot/Logger.mqh>
 
 //--- Input parameters
-input string   InpRelayURL     = "http://192.168.1.232:3000/webhooks/mt5/events";  // Relay webhook URL
+input string   InpRelayURL     = "http://192.168.100.35:3000/webhooks/mt5/events";  // Relay webhook URL
 input string   InpWebhookSecret = "nexus";                                       // HMAC shared secret
 input string   InpTerminalID   = "mac-01";                                       // Terminal identifier
 input int      InpTimerSeconds = 5;                                            // Retry timer interval (seconds)

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { tradeEventSchema } from "../types.js";
-import type { RelayResponse } from "../types.js";
+import type { BusinessEvent, RelayResponse, TradeEventPayload } from "../types.js";
 import type { DedupService } from "../services/dedup.js";
 import type { AuditService } from "../services/audit.js";
 import type { TelegramService } from "../services/telegram.js";
@@ -16,6 +16,66 @@ interface WebhookDeps {
   readonly dedup: DedupService;
   readonly audit: AuditService;
   readonly telegram: TelegramService;
+}
+
+const CLOSE_FAMILY: ReadonlySet<BusinessEvent> = new Set([
+  "POSITION_PARTIALLY_CLOSED",
+  "POSITION_CLOSED",
+  "STOP_LOSS_TRIGGERED",
+  "TAKE_PROFIT_TRIGGERED",
+]);
+
+// Brokers may split a single close order into multiple fills that arrive
+// within milliseconds. Collapse fragments seen on the same position inside
+// this window into one Telegram message via editMessageText.
+const FRAGMENT_AGGREGATION_WINDOW_SECONDS = 3;
+
+function isCloseFamily(event: BusinessEvent): boolean {
+  return CLOSE_FAMILY.has(event);
+}
+
+/** Combine a newly arrived close fragment with the already-sent sibling. */
+function aggregateCloseFragments(
+  sibling: TradeEventPayload,
+  incoming: TradeEventPayload,
+): TradeEventPayload {
+  const combinedVolume = sibling.volume + incoming.volume;
+
+  const weightedPrice =
+    combinedVolume > 0
+      ? (sibling.price * sibling.volume + incoming.price * incoming.volume) /
+        combinedVolume
+      : incoming.price;
+
+  // Promote to the more terminal event: CLOSED > *_TRIGGERED > PARTIALLY_CLOSED.
+  const rank: Record<BusinessEvent, number> = {
+    POSITION_PARTIALLY_CLOSED: 1,
+    STOP_LOSS_TRIGGERED: 2,
+    TAKE_PROFIT_TRIGGERED: 2,
+    POSITION_CLOSED: 3,
+  } as unknown as Record<BusinessEvent, number>;
+  const finalEventType =
+    (rank[incoming.event_type] ?? 0) >= (rank[sibling.event_type] ?? 0)
+      ? incoming.event_type
+      : sibling.event_type;
+
+  // If the final event is terminal (no position left), express the combined
+  // close as the full volume so the formatter renders 100% / no "partial".
+  const isTerminal =
+    finalEventType === "POSITION_CLOSED" ||
+    finalEventType === "STOP_LOSS_TRIGGERED" ||
+    finalEventType === "TAKE_PROFIT_TRIGGERED";
+
+  const total_volume = isTerminal ? combinedVolume : incoming.total_volume;
+
+  return {
+    ...incoming,
+    event_type: finalEventType,
+    volume: combinedVolume,
+    price: weightedPrice,
+    open_price: sibling.open_price || incoming.open_price,
+    total_volume,
+  };
 }
 
 export function createWebhookRouter(deps: WebhookDeps): Router {
@@ -90,28 +150,51 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
       return;
     }
 
-    // Step 4: For close events, calculate overall P&L including previous partial closes
+    // Step 4: Broker fragmentation — if a prior close-family event was just
+    // sent for this position, edit that message with combined volume/price
+    // instead of sending a new one.
+    let siblingKey: string | null = null;
+    let effectivePayload = payload;
+    if (isCloseFamily(payload.event_type) && payload.position_id) {
+      const sibling = deps.dedup.findRecentCloseSibling(
+        payload.position_id,
+        FRAGMENT_AGGREGATION_WINDOW_SECONDS,
+      );
+      if (sibling) {
+        effectivePayload = aggregateCloseFragments(sibling.payload, payload);
+        siblingKey = sibling.idempotencyKey;
+      }
+    }
+
+    // Step 5: For close events, calculate overall P&L including previous partial closes
     let overallProfitable: boolean | null = null;
     if (
-      (payload.event_type === "POSITION_CLOSED" ||
-        payload.event_type === "POSITION_PARTIALLY_CLOSED") &&
-      payload.position_id &&
-      payload.direction
+      (effectivePayload.event_type === "POSITION_CLOSED" ||
+        effectivePayload.event_type === "POSITION_PARTIALLY_CLOSED") &&
+      effectivePayload.position_id &&
+      effectivePayload.direction
     ) {
-      const prevCloses = deps.dedup.getPositionCloses(payload.position_id);
-      const dirMul = payload.direction === "BUY" ? 1 : -1;
+      const prevCloses = deps.dedup.getPositionCloses(
+        effectivePayload.position_id,
+      );
+      const dirMul = effectivePayload.direction === "BUY" ? 1 : -1;
       let totalPnL = 0;
-      // Sum P&L from previous closes
+      // Sum P&L from previous closes (excluding the sibling we're merging
+      // into — its volume is already counted inside effectivePayload).
       for (const prev of prevCloses) {
+        if (siblingKey && prev.idempotency_key === siblingKey) continue;
         const entry = prev.open_price ?? prev.price;
         if (entry > 0 && prev.price > 0) {
           totalPnL += (prev.price - entry) * prev.volume * dirMul;
         }
       }
-      // Add current close P&L
-      const currentEntry = payload.open_price ?? 0;
-      if (currentEntry > 0 && payload.price > 0) {
-        totalPnL += (payload.price - currentEntry) * payload.volume * dirMul;
+      // Add current close P&L (aggregated)
+      const currentEntry = effectivePayload.open_price ?? 0;
+      if (currentEntry > 0 && effectivePayload.price > 0) {
+        totalPnL +=
+          (effectivePayload.price - currentEntry) *
+          effectivePayload.volume *
+          dirMul;
       }
       if (totalPnL !== 0) {
         overallProfitable = totalPnL > 0;
@@ -120,20 +203,52 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
 
     // Format and send text message first, then sticker image
     const message = formatTelegramMessage(
-      payload,
+      effectivePayload,
       overallProfitable,
       marketOrderClassification,
     );
     let messageId: string | undefined;
 
     try {
-      messageId = await deps.telegram.sendMessage(message);
-      deps.dedup.updateMessageId(payload.idempotency_key, messageId);
-      deps.audit.log(
-        payload.idempotency_key,
-        "telegram_sent",
-        `message_id=${messageId}`,
-      );
+      if (siblingKey && payload.position_id) {
+        const sibling = deps.dedup.findRecentCloseSibling(
+          payload.position_id,
+          FRAGMENT_AGGREGATION_WINDOW_SECONDS,
+        );
+        if (sibling) {
+          await deps.telegram.editMessage(sibling.messageId, message);
+          messageId = sibling.messageId;
+          // Persist aggregated payload on the sibling row so subsequent
+          // fragments continue to compound against the combined state.
+          deps.dedup.updateAggregatedPayload(sibling.idempotencyKey, {
+            ...effectivePayload,
+            idempotency_key: sibling.idempotencyKey,
+          });
+          deps.dedup.updateMessageId(payload.idempotency_key, sibling.messageId);
+          deps.audit.log(
+            payload.idempotency_key,
+            "telegram_edited",
+            `sibling=${sibling.idempotencyKey} message_id=${sibling.messageId}`,
+          );
+        } else {
+          // Sibling vanished between the two lookups — fall back to send.
+          messageId = await deps.telegram.sendMessage(message);
+          deps.dedup.updateMessageId(payload.idempotency_key, messageId);
+          deps.audit.log(
+            payload.idempotency_key,
+            "telegram_sent",
+            `message_id=${messageId}`,
+          );
+        }
+      } else {
+        messageId = await deps.telegram.sendMessage(message);
+        deps.dedup.updateMessageId(payload.idempotency_key, messageId);
+        deps.audit.log(
+          payload.idempotency_key,
+          "telegram_sent",
+          `message_id=${messageId}`,
+        );
+      }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       deps.dedup.remove(payload.idempotency_key);

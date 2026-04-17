@@ -24,6 +24,15 @@ export class TelegramService {
       : undefined);
     return String(result.message_id);
   }
+
+  async editMessage(messageId: string, text: string): Promise<void> {
+    await this.bot.editMessageText(text, {
+      chat_id: this.chatId,
+      message_id: Number(messageId),
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+  }
 }
 
 /** Stub for testing — records sent messages and photos without hitting Telegram */
@@ -31,6 +40,7 @@ export class StubTelegramService extends TelegramService {
   readonly sentMessages: string[] = [];
   readonly sentPhotos: string[] = [];
   readonly sentPhotoReplyTo: Array<string | undefined> = [];
+  readonly editedMessages: { messageId: string; text: string }[] = [];
   private counter = 1;
 
   constructor() {
@@ -47,5 +57,13 @@ export class StubTelegramService extends TelegramService {
     this.sentPhotos.push(filePath);
     this.sentPhotoReplyTo.push(replyToMessageId);
     return String(this.counter++);
+  }
+
+  override async editMessage(messageId: string, text: string): Promise<void> {
+    this.editedMessages.push({ messageId, text });
+    const idx = Number(messageId) - 1;
+    if (idx >= 0 && idx < this.sentMessages.length) {
+      this.sentMessages[idx] = text;
+    }
   }
 }
