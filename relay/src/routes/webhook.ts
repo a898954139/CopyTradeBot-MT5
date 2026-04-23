@@ -208,6 +208,10 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
       marketOrderClassification,
     );
     let messageId: string | undefined;
+    // Fragment aggregation edits an existing text message whose original
+    // sticker (if any) is already attached. Don't send another sticker for
+    // the follow-up fragments, or the user sees duplicate images.
+    let didAggregate = false;
 
     try {
       if (siblingKey && payload.position_id) {
@@ -218,6 +222,7 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
         if (sibling) {
           await deps.telegram.editMessage(sibling.messageId, message);
           messageId = sibling.messageId;
+          didAggregate = true;
           // Persist aggregated payload on the sibling row so subsequent
           // fragments continue to compound against the combined state.
           deps.dedup.updateAggregatedPayload(sibling.idempotencyKey, {
@@ -269,24 +274,31 @@ export function createWebhookRouter(deps: WebhookDeps): Router {
       return;
     }
 
-    // Send sticker image after text message (if applicable)
-    const stickerResult = resolveSticker(payload, marketOrderClassification);
-    if (stickerResult) {
-      try {
-        await deps.telegram.sendPhoto(stickerResult.filePath, messageId);
-        deps.audit.log(
-          payload.idempotency_key,
-          "sticker_sent",
-          `sticker=${stickerResult.name}`,
-        );
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        deps.audit.log(
-          payload.idempotency_key,
-          "sticker_failed",
-          `sticker=${stickerResult.name} error=${errorMsg}`,
-        );
-        // Sticker failure does not block response
+    // Send sticker image after the (freshly-sent) text message. Skip when we
+    // aggregated into a prior fragment — that fragment's sticker already
+    // replies to this same text message.
+    if (!didAggregate) {
+      const stickerResult = resolveSticker(
+        effectivePayload,
+        marketOrderClassification,
+      );
+      if (stickerResult) {
+        try {
+          await deps.telegram.sendPhoto(stickerResult.filePath, messageId);
+          deps.audit.log(
+            payload.idempotency_key,
+            "sticker_sent",
+            `sticker=${stickerResult.name}`,
+          );
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          deps.audit.log(
+            payload.idempotency_key,
+            "sticker_failed",
+            `sticker=${stickerResult.name} error=${errorMsg}`,
+          );
+          // Sticker failure does not block response
+        }
       }
     }
 
